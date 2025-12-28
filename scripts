@@ -1,0 +1,41 @@
+getgenv().LoopRunning = false
+local lp = game:GetService("Players").LocalPlayer
+local rems = lp:WaitForChild("Remotes")
+local gR, mR = rems:WaitForChild("DeliverGift"), rems:WaitForChild("SubmitWinterMinigame")
+
+local sg = Instance.new("ScreenGui", lp.PlayerGui)
+local main = Instance.new("TextButton", sg)
+main.Size, main.Position, main.Text = UDim2.new(0, 160, 0, 60), UDim2.new(0, 30, 0.5, -30), "SELECT MODE"
+main.BackgroundColor3, main.TextColor3, main.Font, main.TextSize = Color3.new(0.1,0.1,0.1), Color3.new(1,1,1), 3, 20
+
+local list = Instance.new("Frame", main)
+list.Size, list.Position, list.Visible = UDim2.new(1, 0, 0, 240), UDim2.new(0, 0, 1, 5), false
+
+local function run(m)
+    list.Visible, getgenv().LoopRunning = false, true
+    main.Text, main.BackgroundColor3 = "STOP: "..m, Color3.new(0, 0.6, 0)
+    local function p()
+        for _, d in {{26,"WhackAMole"},{101.66,"Matching"},{2.01,"Knitting"},{10,"Flow"}} do
+            if not getgenv().LoopRunning then break end
+            mR:InvokeServer(d[1], d[2], 3) task.wait(0.83)
+        end
+    end
+    if m == "All" then
+        for n = 1, 5 do for _, c in {"A","B","C","D"} do 
+            if not getgenv().LoopRunning then break end
+            gR:InvokeServer(c..n) task.wait(0.83) 
+        end end
+        p()
+    elseif m == "Games" then p()
+    else for n = 1, 5 do if not getgenv().LoopRunning then break end gR:InvokeServer(m..n) task.wait(0.83) end
+    end
+    getgenv().LoopRunning, main.Text, main.BackgroundColor3 = false, "SELECT MODE", Color3.new(0.1,0.1,0.1)
+end
+
+for i, n in {"A","B","C","D","Games","All"} do
+    local b = Instance.new("TextButton", list)
+    b.Size, b.Position, b.Text = UDim2.new(1, 0, 0, 40), UDim2.new(0, 0, 0, (i-1)*40), n
+    b.BackgroundColor3, b.TextColor3 = Color3.new(0,0,0), Color3.new(1,1,1)
+    b.MouseButton1Click:Connect(function() run(n) end)
+end
+main.MouseButton1Click:Connect(function() if getgenv().LoopRunning then getgenv().LoopRunning = false else list.Visible = not list.Visible end end)
