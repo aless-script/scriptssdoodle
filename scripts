@@ -59,12 +59,24 @@ local function run(m)
         task.wait(0.6)
         pD:FireServer("ToggleBusy", false)
     elseif m == "All" then
-        gR:InvokeServer() task.wait(0.83)
+        -- Deliver to all houses A1-D5
+        for _, letter in {"A","B","C","D"} do
+            for n = 1, 5 do
+                if not getgenv().LoopRunning then break end
+                gR:InvokeServer(letter..n) task.wait(0.5)
+            end
+        end
         p()
     elseif m == "Games" then 
         p()
     else 
-        gR:InvokeServer(m) task.wait(0.83)
+        -- This handles A, B, C, or D specifically
+        -- It loops through houses 1 through 5 for that letter
+        for n = 1, 5 do
+            if not getgenv().LoopRunning then break end
+            gR:InvokeServer(m..n) -- This sends "D1", "D2", etc.
+            task.wait(0.5)
+        end
     end
 
     getgenv().LoopRunning, main.Text, main.BackgroundColor3 = false, "SELECT MODE", Color3.fromRGB(30, 30, 30)
@@ -81,7 +93,6 @@ for i, n in ipairs(buttons) do
     b.MouseButton1Click:Connect(function() run(n) end)
 end
 
--- Toggle Menu
 main.MouseButton1Click:Connect(function() 
     if getgenv().LoopRunning then 
         getgenv().LoopRunning = false 
