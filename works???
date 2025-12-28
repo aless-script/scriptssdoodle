@@ -1,0 +1,59 @@
+local lp = game:GetService("Players").LocalPlayer
+local remotes = lp:WaitForChild("Remotes")
+local Packer = lp:WaitForChild("Packer")
+local Client = require(Packer:WaitForChild("Client"))
+
+-- Level & UI Detection
+local mainGui = lp:WaitForChild("PlayerGui"):WaitForChild("MainGui")
+local eventLevel = mainGui:WaitForChild("WinterEvent"):WaitForChild("ImageLabel"):WaitForChild("Level")
+
+-- Function to check if a gift is already being carried
+local function IsCarryingGift()
+    -- Checks if the "Deliver" text or Gift icon is active in the UI
+    local eventUI = mainGui:FindFirstChild("WinterEvent")
+    return eventUI and eventUI.Visible
+end
+
+print("Background Farm Active: Logic Only")
+
+task.spawn(function()
+    while true do
+        -- 1. Check for Max Level first
+        if string.find(string.lower(eventLevel.Text), "max") then
+            pcall(function() Client.Network:get("RedeemGift") end)
+            task.wait(2)
+
+        -- 2. If we have a gift, deliver it and do minigames
+        elseif IsCarryingGift() then
+            -- Delivery
+            pcall(function() 
+                task.wait(1.4) 
+                Client.Network:get("DeliverPresent") 
+            end)
+            
+            -- Minigame Cycle (2s delay each)
+            local games = {{26, "WhackAMole"}, {101.66, "Matching"}, {2.01, "Knitting"}, {10, "Flow"}}
+            for _, data in ipairs(games) do
+                pcall(function()
+                    remotes.SubmitWinterMinigame:InvokeServer(data[1], data[2], 3)
+                end)
+                task.wait(2)
+            end
+
+        -- 3. If no gift, use the verified safe Santa interaction
+        else
+            remotes.PlayerDataEvent:FireServer("ToggleBusy", true)
+            task.wait(0.8)
+            
+            pcall(function()
+                remotes.GetNewSanta:InvokeServer()
+            end)
+            
+            task.wait(0.6)
+            remotes.PlayerDataEvent:FireServer("ToggleBusy", false)
+            task.wait(1) -- Brief pause to let the UI update
+        end
+        
+        task.wait(0.5)
+    end
+end)
