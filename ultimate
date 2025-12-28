@@ -15,6 +15,7 @@ local mainGui = lp:WaitForChild("PlayerGui"):WaitForChild("MainGui")
 local winterUI = mainGui:WaitForChild("WinterEvent")
 local levelLabel = winterUI:WaitForChild("ImageLabel"):WaitForChild("Level")
 
+-- GUI Creation
 local sg = Instance.new("ScreenGui", lp.PlayerGui)
 local main = Instance.new("TextButton", sg)
 
@@ -28,15 +29,15 @@ local function setToggle(state)
     main.BackgroundColor3 = state and Color3.fromRGB(0, 150, 70) or Color3.fromRGB(150, 30, 30)
 end
 
--- Improved Task Reader
+-- Improved Task Reader (Looking for your specific string)
 local function getTask()
     local taskText = ""
     pcall(function()
-        -- Look for the specific description label
         for _, v in pairs(winterUI:GetDescendants()) do
             if v:IsA("TextLabel") and v.Visible and v.Text ~= "" then
-                local t = v.Text:upper()
-                if t:find("DELIVER") or t:find("HELP") or t:find("GAME") or t:find("SANTA") then
+                local t = v.Text
+                -- Check for the specific "Get a task" string or typical task keywords
+                if t:find("Santa Claus") or t:find("Deliver") or t:find("Help") or t:find("Minigame") then
                     taskText = t
                     break
                 end
@@ -46,18 +47,15 @@ local function getTask()
     return taskText
 end
 
--- Logic: Complete Minigames
+-- Logic: Loops
 local function doGames()
-    notify("Task Started", "Completing Minigames")
     for _, d in ipairs({{26,"WhackAMole"},{101.66,"Matching"},{2.01,"Knitting"},{10,"Flow"}}) do
         if not getgenv().AutoLoop then break end
         mR:InvokeServer(d[1], d[2], 3) task.wait(0.7)
     end
 end
 
--- Logic: Complete Delivery
 local function doDeliver(letter)
-    notify("Task Started", "Delivering to " .. letter)
     for num = 1, 5 do
         if not getgenv().AutoLoop then break end
         gR:InvokeServer(letter .. num) task.wait(0.7)
@@ -67,27 +65,27 @@ end
 -- THE SMART BRAIN
 task.spawn(function()
     while true do
-        task.wait(1.5) -- Check every 1.5 seconds
+        task.wait(1)
         if getgenv().AutoLoop then
-            -- 1. Check Level First
+            -- 1. Check Level (Auto-Off at Max)
             if string.find(string.lower(levelLabel.Text), "max") then
                 rR:InvokeServer()
-                notify("Farm Info", "Max Level reached! Stopping.")
+                notify("Farm Info", "Max Level! Redeemed & Stopping.")
                 setToggle(false)
             else
                 local currentTask = getTask()
                 
-                -- 2. Check if we need a new Santa Task
-                if currentTask:find("GET A TASK") or currentTask == "" or not winterUI.Visible then
-                    notify("Santa", "Requesting new task...")
+                -- 2. Logic for "Get a task from Santa Claus!"
+                if currentTask:find("Santa Claus") or currentTask == "" or not winterUI.Visible then
+                    notify("Santa", "Talking to Santa...")
                     pD:FireServer("ToggleBusy", true)
                     task.wait(0.5)
                     nS:InvokeServer()
-                    task.wait(0.5)
+                    task.wait(0.8) -- Wait for server to process
                     pD:FireServer("ToggleBusy", false)
-                    task.wait(2) -- Wait for UI to update
+                    task.wait(1.5) -- Wait for UI text to change
                 
-                -- 3. Run Loop based on Task
+                -- 3. Logic for Deliveries
                 elseif currentTask:find("A") then
                     doDeliver("A")
                 elseif currentTask:find("B") then
@@ -96,7 +94,9 @@ task.spawn(function()
                     doDeliver("C")
                 elseif currentTask:find("D") then
                     doDeliver("D")
-                elseif currentTask:find("GAME") or currentTask:find("HELP") then
+                
+                -- 4. Logic for Minigames
+                elseif currentTask:find("Help") or currentTask:find("Minigame") then
                     doGames()
                 end
             end
@@ -104,7 +104,7 @@ task.spawn(function()
     end
 end)
 
--- GUI SETUP
+-- GUI Appearance & Draggable Logic
 main.Size, main.Position, main.Text = UDim2.new(0, 180, 0, 60), UDim2.new(0, 30, 0.5, -30), "AUTO FARM: OFF"
 main.BackgroundColor3, main.TextColor3, main.Font, main.TextSize = Color3.fromRGB(150, 30, 30), Color3.new(1, 1, 1), Enum.Font.GothamBold, 18
 Instance.new("UICorner", main).CornerRadius = UDim.new(0, 8)
