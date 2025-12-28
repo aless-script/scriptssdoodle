@@ -1,7 +1,10 @@
 getgenv().LoopRunning = false
 local lp = game:GetService("Players").LocalPlayer
 local rems = lp:WaitForChild("Remotes")
-local gR, mR = rems:WaitForChild("DeliverPresent"), rems:WaitForChild("SubmitWinterMinigame")
+
+-- Correct Remotes based on your help snippet
+local gR = rems:WaitForChild("DeliverGift") -- Using InvokeServer as requested
+local mR = rems:WaitForChild("SubmitWinterMinigame")
 local pD = rems:WaitForChild("PlayerDataEvent")
 local nS = rems:WaitForChild("GetNewSanta")
 
@@ -14,30 +17,36 @@ main.AutoButtonColor = false
 Instance.new("UICorner", main).CornerRadius = UDim.new(0, 8)
 
 local list = Instance.new("Frame", main)
-list.Size, list.Position, list.Visible = UDim2.new(1, 0, 0, 285), UDim2.new(0, 0, 1, 5), false
+list.Size, list.Position, list.Visible = UDim2.new(1, 0, 0, 325), UDim2.new(0, 0, 1, 5), false
 list.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 Instance.new("UICorner", list).CornerRadius = UDim.new(0, 8)
 
--- Draggable Logic
-local dragging, dragInput, dragStart, startPos
+-- FIXED DRAGGABLE LOGIC
+local UserInputService = game:GetService("UserInputService")
+local dragToggle, dragInput, dragStart, startPos
+
+local function updateInput(input)
+    local delta = input.Position - dragStart
+    main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+end
+
 main.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = true
+    if (input.UserInputType == Enum.UserInputType.MouseButton1) then
+        dragToggle = true
         dragStart = input.Position
         startPos = main.Position
+        input.Changed:Connect(function()
+            if (input.UserInputState == Enum.UserInputState.End) then dragToggle = false end
+        end)
     end
 end)
-main.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement then dragInput = input end
+
+UserInputService.InputChanged:Connect(function(input)
+    if (input.UserInputType == Enum.UserInputType.MouseMovement) then dragInput = input end
 end)
-game:GetService("UserInputService").InputChanged:Connect(function(input)
-    if input == dragInput and dragging then
-        local delta = input.Position - dragStart
-        main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-    end
-end)
-game:GetService("UserInputService").InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+
+UserInputService.InputChanged:Connect(function(input)
+    if (input == dragInput and dragToggle) then updateInput(input) end
 end)
 
 -- Main Execution Logic
@@ -45,13 +54,26 @@ local function run(m)
     list.Visible, getgenv().LoopRunning = false, true
     main.Text, main.BackgroundColor3 = "RUNNING: "..m, Color3.fromRGB(0, 150, 70)
     
-    local function p()
-        for _, d in {{26,"WhackAMole"},{101.66,"Matching"},{2.01,"Knitting"},{10,"Flow"}} do
+    -- Minigame sub-function
+    local function doGames()
+        for _, d in ipairs({{26,"WhackAMole"},{101.66,"Matching"},{2.01,"Knitting"},{10,"Flow"}}) do
             if not getgenv().LoopRunning then break end
-            mR:InvokeServer(d[1], d[2], 3) task.wait(0.83)
+            mR:InvokeServer(d[1], d[2], 3) 
+            task.wait(0.83)
         end
     end
 
+    -- Delivery sub-function
+    local function doDeliver(char)
+        for num = 1, 5 do
+            if not getgenv().LoopRunning then break end
+            print("Delivering: " .. char .. num)
+            gR:InvokeServer(char .. num)
+            task.wait(0.83) -- Faster than 3s, but safe for most executors
+        end
+    end
+
+    -- Logic Switch
     if m == "Santa" then
         pD:FireServer("ToggleBusy", true)
         task.wait(0.8)
@@ -59,24 +81,16 @@ local function run(m)
         task.wait(0.6)
         pD:FireServer("ToggleBusy", false)
     elseif m == "All" then
-        -- Deliver to all houses A1-D5
-        for _, letter in {"A","B","C","D"} do
-            for n = 1, 5 do
-                if not getgenv().LoopRunning then break end
-                gR:InvokeServer(letter..n) task.wait(0.5)
-            end
-        end
-        p()
-    elseif m == "Games" then 
-        p()
-    else 
-        -- This handles A, B, C, or D specifically
-        -- It loops through houses 1 through 5 for that letter
-        for n = 1, 5 do
+        for _, letter in ipairs({"A", "B", "C", "D"}) do
             if not getgenv().LoopRunning then break end
-            gR:InvokeServer(m..n) -- This sends "D1", "D2", etc.
-            task.wait(0.5)
+            doDeliver(letter)
         end
+        doGames()
+    elseif m == "Games" then 
+        doGames()
+    else 
+        -- Handles A, B, C, or D individually
+        doDeliver(m)
     end
 
     getgenv().LoopRunning, main.Text, main.BackgroundColor3 = false, "SELECT MODE", Color3.fromRGB(30, 30, 30)
@@ -86,13 +100,14 @@ end
 local buttons = {"A","B","C","D","Games","All","Santa"}
 for i, n in ipairs(buttons) do
     local b = Instance.new("TextButton", list)
-    b.Size, b.Position, b.Text = UDim2.new(1, -10, 0, 35), UDim2.new(0, 5, 0, (i-1)*40 + 5), n
+    b.Size, b.Position, b.Text = UDim2.new(1, -10, 0, 40), UDim2.new(0, 5, 0, (i-1)*45 + 5), n
     b.BackgroundColor3, b.TextColor3, b.Font = Color3.fromRGB(45, 45, 45), Color3.new(1, 1, 1), Enum.Font.Gotham
     b.TextSize = 14
     Instance.new("UICorner", b).CornerRadius = UDim.new(0, 4)
     b.MouseButton1Click:Connect(function() run(n) end)
 end
 
+-- Toggle Menu
 main.MouseButton1Click:Connect(function() 
     if getgenv().LoopRunning then 
         getgenv().LoopRunning = false 
