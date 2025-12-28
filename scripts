@@ -2,40 +2,109 @@ getgenv().LoopRunning = false
 local lp = game:GetService("Players").LocalPlayer
 local rems = lp:WaitForChild("Remotes")
 local gR, mR = rems:WaitForChild("DeliverGift"), rems:WaitForChild("SubmitWinterMinigame")
+local UIS = game:GetService("UserInputService")
 
+-- Main GUI
 local sg = Instance.new("ScreenGui", lp.PlayerGui)
+sg.Name = "SleekFarm"
+
+-- Main Button (The Draggable Base)
 local main = Instance.new("TextButton", sg)
-main.Size, main.Position, main.Text = UDim2.new(0, 160, 0, 60), UDim2.new(0, 30, 0.5, -30), "SELECT MODE"
-main.BackgroundColor3, main.TextColor3, main.Font, main.TextSize = Color3.new(0.1,0.1,0.1), Color3.new(1,1,1), 3, 20
+main.Size = UDim2.new(0, 180, 0, 50)
+main.Position = UDim2.new(0, 50, 0.5, -25)
+main.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+main.BorderSizePixel = 0
+main.Text = "SELECT MODE"
+main.TextColor3 = Color3.new(1, 1, 1)
+main.Font = Enum.Font.GothamBold
+main.TextSize = 14
+main.AutoButtonColor = false
 
+-- Styling
+Instance.new("UICorner", main).CornerRadius = UDim.new(0, 9)
+local stroke = Instance.new("UIStroke", main)
+stroke.Color = Color3.fromRGB(0, 170, 255)
+stroke.Thickness = 2
+
+local grad = Instance.new("UIGradient", main)
+grad.Color = ColorSequence.new{ColorSequenceKeypoint.new(0, Color3.new(1,1,1)), ColorSequenceKeypoint.new(1, Color3.fromRGB(150,150,150))}
+
+-- Dropdown
 local list = Instance.new("Frame", main)
-list.Size, list.Position, list.Visible = UDim2.new(1, 0, 0, 240), UDim2.new(0, 0, 1, 5), false
+list.Size = UDim2.new(1, 0, 0, 0)
+list.Position = UDim2.new(0, 0, 1, 8)
+list.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+list.BorderSizePixel = 0
+list.ClipsDescendants = true
+list.Visible = false
+Instance.new("UICorner", list)
+local layout = Instance.new("UIListLayout", list)
+layout.Padding = UDim.new(0, 3)
 
+-- Dragging Logic
+local dragging, dragInput, dragStart, startPos
+main.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		dragging = true
+		dragStart = input.Position
+		startPos = main.Position
+		input.Changed:Connect(function()
+			if input.UserInputState == Enum.UserInputState.End then dragging = false end
+		end)
+	end
+end)
+main.InputChanged:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseMovement then dragInput = input end
+end)
+UIS.InputChanged:Connect(function(input)
+	if input == dragInput and dragging then
+		local delta = input.Position - dragStart
+		main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+	end
+end)
+
+-- Execution Logic
 local function run(m)
-    list.Visible, getgenv().LoopRunning = false, true
-    main.Text, main.BackgroundColor3 = "STOP: "..m, Color3.new(0, 0.6, 0)
-    local function p()
-        for _, d in {{26,"WhackAMole"},{101.66,"Matching"},{2.01,"Knitting"},{10,"Flow"}} do
-            if not getgenv().LoopRunning then break end
-            mR:InvokeServer(d[1], d[2], 3) task.wait(0.83)
-        end
-    end
-    if m == "All" then
-        for n = 1, 5 do for _, c in {"A","B","C","D"} do 
-            if not getgenv().LoopRunning then break end
-            gR:InvokeServer(c..n) task.wait(0.83) 
-        end end
-        p()
-    elseif m == "Games" then p()
-    else for n = 1, 5 do if not getgenv().LoopRunning then break end gR:InvokeServer(m..n) task.wait(0.83) end
-    end
-    getgenv().LoopRunning, main.Text, main.BackgroundColor3 = false, "SELECT MODE", Color3.new(0.1,0.1,0.1)
+	list.Visible, getgenv().LoopRunning = false, true
+	main.Text = "⏹ STOP: " .. m
+	stroke.Color = Color3.fromRGB(255, 50, 50)
+	
+	local function p()
+		for _, d in {{26,"WhackAMole"},{101.66,"Matching"},{2.01,"Knitting"},{10,"Flow"}} do
+			if not getgenv().LoopRunning then break end
+			mR:InvokeServer(d[1], d[2], 3) task.wait(0.83)
+		end
+	end
+
+	if m == "All" then
+		for n = 1, 5 do for _, c in {"A","B","C","D"} do 
+			if not getgenv().LoopRunning then break end
+			gR:InvokeServer(c..n) task.wait(0.83) 
+		end end
+		p()
+	elseif m == "Games" then p()
+	else for n = 1, 5 do if not getgenv().LoopRunning then break end gR:InvokeServer(m..n) task.wait(0.83) end end
+
+	getgenv().LoopRunning = false
+	main.Text = "SELECT MODE"
+	stroke.Color = Color3.fromRGB(0, 170, 255)
 end
 
-for i, n in {"A","B","C","D","Games","All"} do
-    local b = Instance.new("TextButton", list)
-    b.Size, b.Position, b.Text = UDim2.new(1, 0, 0, 40), UDim2.new(0, 0, 0, (i-1)*40), n
-    b.BackgroundColor3, b.TextColor3 = Color3.new(0,0,0), Color3.new(1,1,1)
-    b.MouseButton1Click:Connect(function() run(n) end)
+-- Create Menu Buttons
+for _, n in {"A", "B", "C", "D", "Games", "All"} do
+	local b = Instance.new("TextButton", list)
+	b.Size = UDim2.new(1, 0, 0, 35)
+	b.BackgroundTransparency = 1
+	b.Text, b.TextColor3, b.Font = n, Color3.fromRGB(200, 200, 200), Enum.Font.GothamSemibold
+	b.MouseButton1Click:Connect(function() run(n) end)
 end
-main.MouseButton1Click:Connect(function() if getgenv().LoopRunning then getgenv().LoopRunning = false else list.Visible = not list.Visible end end)
+
+-- Toggle with Tween
+main.MouseButton1Click:Connect(function()
+	if getgenv().LoopRunning then getgenv().LoopRunning = false 
+	else
+		list.Visible = not list.Visible
+		if list.Visible then list:TweenSize(UDim2.new(1, 0, 0, 230), "Out", "Quart", 0.3, true)
+		else list.Size = UDim2.new(1, 0, 0, 0) end
+	end
+end)
