@@ -5,17 +5,45 @@ local gR, mR = rems:WaitForChild("DeliverPresent"), rems:WaitForChild("SubmitWin
 local pD = rems:WaitForChild("PlayerDataEvent")
 local nS = rems:WaitForChild("GetNewSanta")
 
+-- GUI Setup
 local sg = Instance.new("ScreenGui", lp.PlayerGui)
 local main = Instance.new("TextButton", sg)
-main.Size, main.Position, main.Text = UDim2.new(0, 160, 0, 60), UDim2.new(0, 30, 0.5, -30), "SELECT MODE"
-main.BackgroundColor3, main.TextColor3, main.Font, main.TextSize = Color3.new(0.1,0.1,0.1), Color3.new(1,1,1), 3, 20
+main.Size, main.Position, main.Text = UDim2.new(0, 180, 0, 60), UDim2.new(0, 30, 0.5, -30), "SELECT MODE"
+main.BackgroundColor3, main.TextColor3, main.Font, main.TextSize = Color3.fromRGB(30, 30, 30), Color3.new(1, 1, 1), Enum.Font.GothamBold, 18
+main.AutoButtonColor = false
+Instance.new("UICorner", main).CornerRadius = UDim.new(0, 8)
 
 local list = Instance.new("Frame", main)
-list.Size, list.Position, list.Visible = UDim2.new(1, 0, 0, 280), UDim2.new(0, 0, 1, 5), false
+list.Size, list.Position, list.Visible = UDim2.new(1, 0, 0, 285), UDim2.new(0, 0, 1, 5), false
+list.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+Instance.new("UICorner", list).CornerRadius = UDim.new(0, 8)
 
+-- Draggable Logic
+local dragging, dragInput, dragStart, startPos
+main.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = main.Position
+    end
+end)
+main.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement then dragInput = input end
+end)
+game:GetService("UserInputService").InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        local delta = input.Position - dragStart
+        main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+game:GetService("UserInputService").InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+end)
+
+-- Main Execution Logic
 local function run(m)
     list.Visible, getgenv().LoopRunning = false, true
-    main.Text, main.BackgroundColor3 = "STOP: "..m, Color3.new(0, 0.6, 0)
+    main.Text, main.BackgroundColor3 = "RUNNING: "..m, Color3.fromRGB(0, 150, 70)
     
     local function p()
         for _, d in {{26,"WhackAMole"},{101.66,"Matching"},{2.01,"Knitting"},{10,"Flow"}} do
@@ -24,7 +52,6 @@ local function run(m)
         end
     end
 
-    -- The Logic Loop
     if m == "Santa" then
         pD:FireServer("ToggleBusy", true)
         task.wait(0.8)
@@ -37,20 +64,24 @@ local function run(m)
     elseif m == "Games" then 
         p()
     else 
-        -- Handles A, B, C, D if they still use strings, otherwise just calls gR
         gR:InvokeServer(m) task.wait(0.83)
     end
 
-    getgenv().LoopRunning, main.Text, main.BackgroundColor3 = false, "SELECT MODE", Color3.new(0.1,0.1,0.1)
+    getgenv().LoopRunning, main.Text, main.BackgroundColor3 = false, "SELECT MODE", Color3.fromRGB(30, 30, 30)
 end
 
-for i, n in {"A","B","C","D","Games","All","Santa"} do
+-- Create Buttons
+local buttons = {"A","B","C","D","Games","All","Santa"}
+for i, n in ipairs(buttons) do
     local b = Instance.new("TextButton", list)
-    b.Size, b.Position, b.Text = UDim2.new(1, 0, 0, 40), UDim2.new(0, 0, 0, (i-1)*40), n
-    b.BackgroundColor3, b.TextColor3 = Color3.new(0,0,0), Color3.new(1,1,1)
+    b.Size, b.Position, b.Text = UDim2.new(1, -10, 0, 35), UDim2.new(0, 5, 0, (i-1)*40 + 5), n
+    b.BackgroundColor3, b.TextColor3, b.Font = Color3.fromRGB(45, 45, 45), Color3.new(1, 1, 1), Enum.Font.Gotham
+    b.TextSize = 14
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 4)
     b.MouseButton1Click:Connect(function() run(n) end)
 end
 
+-- Toggle Menu
 main.MouseButton1Click:Connect(function() 
     if getgenv().LoopRunning then 
         getgenv().LoopRunning = false 
