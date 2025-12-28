@@ -15,7 +15,6 @@ local mainGui = lp:WaitForChild("PlayerGui"):WaitForChild("MainGui")
 local winterUI = mainGui:WaitForChild("WinterEvent")
 local levelLabel = winterUI:WaitForChild("ImageLabel"):WaitForChild("Level")
 
--- GUI Creation
 local sg = Instance.new("ScreenGui", lp.PlayerGui)
 local main = Instance.new("TextButton", sg)
 
@@ -25,18 +24,17 @@ end
 
 local function setToggle(state)
     getgenv().AutoLoop = state
-    main.Text = state and "AUTO FARM: ON" or "AUTO FARM: OFF"
+    main.Text = state and "SAFE FARM: ON" or "SAFE FARM: OFF"
     main.BackgroundColor3 = state and Color3.fromRGB(0, 150, 70) or Color3.fromRGB(150, 30, 30)
 end
 
--- Improved Task Reader (Looking for your specific string)
+-- Safely find the current task text
 local function getTask()
     local taskText = ""
     pcall(function()
         for _, v in pairs(winterUI:GetDescendants()) do
             if v:IsA("TextLabel") and v.Visible and v.Text ~= "" then
                 local t = v.Text
-                -- Check for the specific "Get a task" string or typical task keywords
                 if t:find("Santa Claus") or t:find("Deliver") or t:find("Help") or t:find("Minigame") then
                     taskText = t
                     break
@@ -47,45 +45,49 @@ local function getTask()
     return taskText
 end
 
--- Logic: Loops
-local function doGames()
-    for _, d in ipairs({{26,"WhackAMole"},{101.66,"Matching"},{2.01,"Knitting"},{10,"Flow"}}) do
-        if not getgenv().AutoLoop then break end
-        mR:InvokeServer(d[1], d[2], 3) task.wait(0.7)
-    end
-end
-
+-- SAFE DELIVERY (1 second delay between houses to prevent kicks)
 local function doDeliver(letter)
+    notify("Safe Farm", "Starting House " .. letter)
     for num = 1, 5 do
         if not getgenv().AutoLoop then break end
-        gR:InvokeServer(letter .. num) task.wait(0.7)
+        gR:InvokeServer(letter .. num) 
+        task.wait(1.1) -- Human-like delay
     end
 end
 
--- THE SMART BRAIN
+-- SAFE MINIGAMES
+local function doGames()
+    notify("Safe Farm", "Completing Minigames")
+    for _, d in ipairs({{26,"WhackAMole"},{101.66,"Matching"},{2.01,"Knitting"},{10,"Flow"}}) do
+        if not getgenv().AutoLoop then break end
+        mR:InvokeServer(d[1], d[2], 3) 
+        task.wait(1.2) -- Human-like delay
+    end
+end
+
+-- THE BRAIN
 task.spawn(function()
     while true do
-        task.wait(1)
+        task.wait(2) -- Check cycle every 2 seconds
         if getgenv().AutoLoop then
-            -- 1. Check Level (Auto-Off at Max)
+            -- 1. LEVEL SAFETY CHECK
             if string.find(string.lower(levelLabel.Text), "max") then
                 rR:InvokeServer()
-                notify("Farm Info", "Max Level! Redeemed & Stopping.")
+                notify("SAFE STOP", "Max level! Stopping to stay safe.")
                 setToggle(false)
             else
                 local currentTask = getTask()
                 
-                -- 2. Logic for "Get a task from Santa Claus!"
+                -- 2. SANTA TALK CHECK
                 if currentTask:find("Santa Claus") or currentTask == "" or not winterUI.Visible then
-                    notify("Santa", "Talking to Santa...")
                     pD:FireServer("ToggleBusy", true)
                     task.wait(0.5)
                     nS:InvokeServer()
-                    task.wait(0.8) -- Wait for server to process
+                    task.wait(1)
                     pD:FireServer("ToggleBusy", false)
-                    task.wait(1.5) -- Wait for UI text to change
+                    task.wait(2) -- Give the UI time to update
                 
-                -- 3. Logic for Deliveries
+                -- 3. SMART TASK EXECUTION
                 elseif currentTask:find("A") then
                     doDeliver("A")
                 elseif currentTask:find("B") then
@@ -94,8 +96,6 @@ task.spawn(function()
                     doDeliver("C")
                 elseif currentTask:find("D") then
                     doDeliver("D")
-                
-                -- 4. Logic for Minigames
                 elseif currentTask:find("Help") or currentTask:find("Minigame") then
                     doGames()
                 end
@@ -104,8 +104,8 @@ task.spawn(function()
     end
 end)
 
--- GUI Appearance & Draggable Logic
-main.Size, main.Position, main.Text = UDim2.new(0, 180, 0, 60), UDim2.new(0, 30, 0.5, -30), "AUTO FARM: OFF"
+-- GUI Appearance & Draggable
+main.Size, main.Position, main.Text = UDim2.new(0, 180, 0, 60), UDim2.new(0, 30, 0.5, -30), "SAFE FARM: OFF"
 main.BackgroundColor3, main.TextColor3, main.Font, main.TextSize = Color3.fromRGB(150, 30, 30), Color3.new(1, 1, 1), Enum.Font.GothamBold, 18
 Instance.new("UICorner", main).CornerRadius = UDim.new(0, 8)
 
