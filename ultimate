@@ -1,0 +1,133 @@
+getgenv().AutoLoop = false
+local lp = game:GetService("Players").LocalPlayer
+local rems = lp:WaitForChild("Remotes")
+local StarterGui = game:GetService("StarterGui")
+
+-- Remotes
+local gR = rems:WaitForChild("DeliverGift")
+local mR = rems:WaitForChild("SubmitWinterMinigame")
+local pD = rems:WaitForChild("PlayerDataEvent")
+local nS = rems:WaitForChild("GetNewSanta")
+local rR = rems:WaitForChild("RedeemGift")
+
+-- UI Detection
+local mainGui = lp:WaitForChild("PlayerGui"):WaitForChild("MainGui")
+local winterUI = mainGui:WaitForChild("WinterEvent")
+local levelLabel = winterUI:WaitForChild("ImageLabel"):WaitForChild("Level")
+
+-- GUI References (for toggling color/text)
+local sg = Instance.new("ScreenGui", lp.PlayerGui)
+local main = Instance.new("TextButton", sg)
+
+local function notify(title, text)
+    StarterGui:SetCore("SendNotification", {Title = title, Text = text, Duration = 5, Icon = "rbxassetid://15814532687"})
+end
+
+local function setToggle(state)
+    getgenv().AutoLoop = state
+    if state then
+        main.Text = "AUTO FARM: ON"
+        main.BackgroundColor3 = Color3.fromRGB(0, 150, 70)
+    else
+        main.Text = "AUTO FARM: OFF"
+        main.BackgroundColor3 = Color3.fromRGB(150, 30, 30)
+    end
+end
+
+-- Logic: Get Current Task String
+local function getTask()
+    if not winterUI.Visible then return "NONE" end
+    local taskText = ""
+    pcall(function()
+        for _, v in pairs(winterUI:GetDescendants()) do
+            if v:IsA("TextLabel") and (v.Name:lower():find("task") or v.Name:lower():find("desc")) then
+                taskText = v.Text
+                break
+            end
+        end
+    end)
+    return taskText:upper()
+end
+
+-- Logic: Complete Minigames
+local function doGames()
+    for _, d in ipairs({{26,"WhackAMole"},{101.66,"Matching"},{2.01,"Knitting"},{10,"Flow"}}) do
+        if not getgenv().AutoLoop then break end
+        mR:InvokeServer(d[1], d[2], 3) task.wait(0.85)
+    end
+end
+
+-- Logic: Complete Delivery
+local function doDeliver(letter)
+    for num = 1, 5 do
+        if not getgenv().AutoLoop then break end
+        gR:InvokeServer(letter .. num) task.wait(0.85)
+    end
+end
+
+-- Logic: Handle Santa Refresh
+local function getNewSantaTask()
+    pD:FireServer("ToggleBusy", true) task.wait(0.8)
+    nS:InvokeServer() task.wait(0.6)
+    pD:FireServer("ToggleBusy", false)
+end
+
+-- THE MAIN SMART LOOP
+task.spawn(function()
+    while true do
+        task.wait(1)
+        if getgenv().AutoLoop then
+            -- 1. Check if Max Level
+            if string.find(string.lower(levelLabel.Text), "max") then
+                notify("Smart Farm", "Max Level reached! Redeeming and stopping...")
+                rR:InvokeServer()
+                setToggle(false) -- THIS TURNS THE TOGGLE OFF
+            else
+                -- 2. Check Task
+                local taskName = getTask()
+                
+                if taskName == "NONE" or taskName == "" then
+                    getNewSantaTask()
+                    task.wait(2)
+                elseif taskName:find("A") then
+                    doDeliver("A")
+                elseif taskName:find("B") then
+                    doDeliver("B")
+                elseif taskName:find("C") then
+                    doDeliver("C")
+                elseif taskName:find("D") then
+                    doDeliver("D")
+                elseif taskName:find("GAME") or taskName:find("HELP") or taskName:find("MINIGAME") then
+                    doGames()
+                else
+                    doGames() -- Default
+                end
+            end
+        end
+    end
+end)
+
+-- GUI Appearance
+main.Size, main.Position, main.Text = UDim2.new(0, 180, 0, 60), UDim2.new(0, 30, 0.5, -30), "AUTO FARM: OFF"
+main.BackgroundColor3, main.TextColor3, main.Font, main.TextSize = Color3.fromRGB(150, 30, 30), Color3.new(1, 1, 1), Enum.Font.GothamBold, 18
+Instance.new("UICorner", main).CornerRadius = UDim.new(0, 8)
+
+-- Draggable Logic
+local UIS = game:GetService("UserInputService")
+local dragToggle, dragInput, dragStart, startPos
+main.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragToggle, dragStart, startPos = true, input.Position, main.Position
+        input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragToggle = false end end)
+    end
+end)
+UIS.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseMovement then dragInput = input end end)
+UIS.InputChanged:Connect(function(input) if input == dragInput and dragToggle then 
+    local delta = input.Position - dragStart
+    main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+end end)
+
+-- Manual Toggle Button
+main.MouseButton1Click:Connect(function()
+    setToggle(not getgenv().AutoLoop)
+end)
