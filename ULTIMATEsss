@@ -1,0 +1,125 @@
+getgenv().AutoLoop = false
+local lp = game:GetService("Players").LocalPlayer
+local rems = lp:WaitForChild("Remotes")
+local StarterGui = game:GetService("StarterGui")
+
+-- Remotes
+local gR = rems:WaitForChild("DeliverGift")
+local mR = rems:WaitForChild("SubmitWinterMinigame")
+local pD = rems:WaitForChild("PlayerDataEvent")
+local nS = rems:WaitForChild("GetNewSanta")
+local rR = rems:WaitForChild("RedeemGift")
+
+-- UI Detection
+local mainGui = lp:WaitForChild("PlayerGui"):WaitForChild("MainGui")
+local winterUI = mainGui:WaitForChild("WinterEvent")
+local levelLabel = winterUI:WaitForChild("ImageLabel"):WaitForChild("Level")
+
+local sg = Instance.new("ScreenGui", lp.PlayerGui)
+local main = Instance.new("TextButton", sg)
+
+local function notify(title, text)
+    StarterGui:SetCore("SendNotification", {Title = title, Text = text, Duration = 3, Icon = "rbxassetid://15814532687"})
+end
+
+local function setToggle(state)
+    getgenv().AutoLoop = state
+    main.Text = state and "AUTO FARM: ON" or "AUTO FARM: OFF"
+    main.BackgroundColor3 = state and Color3.fromRGB(0, 150, 70) or Color3.fromRGB(150, 30, 30)
+end
+
+-- Improved Task Reader (Added "ELF" detection)
+local function getTask()
+    local taskText = ""
+    pcall(function()
+        for _, v in pairs(winterUI:GetDescendants()) do
+            if v:IsA("TextLabel") and v.Visible and v.Text ~= "" then
+                local t = v.Text:upper() -- Convert to uppercase for easier matching
+                if t:find("SANTA") or t:find("DELIVER") or t:find("HELP") or t:find("MINIGAME") or t:find("ELF") then
+                    taskText = t
+                    break
+                end
+            end
+        end
+    end)
+    return taskText
+end
+
+-- Safe Loops
+local function doGames()
+    notify("Task Action", "Helping Elves (Minigames)")
+    for _, d in ipairs({{26,"WhackAMole"},{101.66,"Matching"},{2.01,"Knitting"},{10,"Flow"}}) do
+        if not getgenv().AutoLoop then break end
+        mR:InvokeServer(d[1], d[2], 3) task.wait(0.8) -- Kept safe delay
+    end
+end
+
+local function doDeliver(letter)
+    notify("Task Action", "Delivering Gifts to " .. letter)
+    for num = 1, 5 do
+        if not getgenv().AutoLoop then break end
+        gR:InvokeServer(letter .. num) task.wait(0.8) -- Kept safe delay
+    end
+end
+
+-- THE SMART BRAIN
+task.spawn(function()
+    while true do
+        task.wait(1.2)
+        if getgenv().AutoLoop then
+            -- 1. Check Level Safety
+            if string.find(string.lower(levelLabel.Text), "max") then
+                rR:InvokeServer()
+                notify("Farm Info", "Max Level reached! Stopping.")
+                setToggle(false)
+            else
+                local currentTask = getTask()
+                
+                -- 2. Santa Talk Logic
+                if currentTask:find("SANTA") or currentTask == "" or not winterUI.Visible then
+                    pD:FireServer("ToggleBusy", true)
+                    task.wait(0.5)
+                    nS:InvokeServer()
+                    task.wait(1)
+                    pD:FireServer("ToggleBusy", false)
+                    task.wait(2)
+                
+                -- 3. Minigame Logic (Triggers on "HELP" or "ELF")
+                elseif currentTask:find("HELP") or currentTask:find("ELF") or currentTask:find("MINIGAME") then
+                    doGames()
+                
+                -- 4. Delivery Logic
+                elseif currentTask:find("A") then
+                    doDeliver("A")
+                elseif currentTask:find("B") then
+                    doDeliver("B")
+                elseif currentTask:find("C") then
+                    doDeliver("C")
+                elseif currentTask:find("D") then
+                    doDeliver("D")
+                end
+            end
+        end
+    end
+end)
+
+-- GUI Appearance & Draggable Logic
+main.Size, main.Position, main.Text = UDim2.new(0, 180, 0, 60), UDim2.new(0, 30, 0.5, -30), "AUTO FARM: OFF"
+main.BackgroundColor3, main.TextColor3, main.Font, main.TextSize = Color3.fromRGB(150, 30, 30), Color3.new(1, 1, 1), Enum.Font.GothamBold, 18
+Instance.new("UICorner", main).CornerRadius = UDim.new(0, 8)
+
+local UIS = game:GetService("UserInputService")
+local dragToggle, dragInput, dragStart, startPos
+main.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragToggle, dragStart, startPos = true, input.Position, main.Position
+        input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragToggle = false end end)
+    end
+end)
+UIS.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseMovement then dragInput = input end end)
+UIS.InputChanged:Connect(function(input) if input == dragInput and dragToggle then 
+    local delta = input.Position - dragStart
+    main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+end end)
+
+main.MouseButton1Click:Connect(function() setToggle(not getgenv().AutoLoop) end)
