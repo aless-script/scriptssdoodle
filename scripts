@@ -1,101 +1,56 @@
--- 1. Load Backend Logic
-loadstring(game:HttpGet("https://raw.githubusercontent.com/aless-script/scriptssdoodle/refs/heads/main/scripts"))()
-
 getgenv().LoopRunning = false
 local lp = game:GetService("Players").LocalPlayer
 local rems = lp:WaitForChild("Remotes")
-local Client = require(lp:WaitForChild("Packer"):WaitForChild("Client"))
+local gR, mR = rems:WaitForChild("DeliverPresent"), rems:WaitForChild("SubmitWinterMinigame")
+local pD = rems:WaitForChild("PlayerDataEvent")
+local nS = rems:WaitForChild("GetNewSanta")
 
--- UI Detection
-local mainGui = lp.PlayerGui:WaitForChild("MainGui")
-local winterEvent = mainGui:WaitForChild("WinterEvent")
-local eventLevel = winterEvent:WaitForChild("ImageLabel"):WaitForChild("Level")
-
--- Main GUI Creation
 local sg = Instance.new("ScreenGui", lp.PlayerGui)
 local main = Instance.new("TextButton", sg)
-main.Name = "MainToggleButton"
-main.Size, main.Position, main.Text = UDim2.new(0, 180, 0, 60), UDim2.new(0, 30, 0.5, -30), "SELECT MODE"
-main.BackgroundColor3, main.TextColor3, main.Font, main.TextSize = Color3.fromRGB(30, 30, 30), Color3.new(1,1,1), Enum.Font.GothamBold, 18
-Instance.new("UICorner", main)
+main.Size, main.Position, main.Text = UDim2.new(0, 160, 0, 60), UDim2.new(0, 30, 0.5, -30), "SELECT MODE"
+main.BackgroundColor3, main.TextColor3, main.Font, main.TextSize = Color3.new(0.1,0.1,0.1), Color3.new(1,1,1), 3, 20
 
 local list = Instance.new("Frame", main)
-list.Name = "DropdownList"
 list.Size, list.Position, list.Visible = UDim2.new(1, 0, 0, 280), UDim2.new(0, 0, 1, 5), false
-list.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-Instance.new("UICorner", list)
 
--- Function to handle the Santa interaction safely
-local function RunGetSanta(btn)
-    if winterEvent.Visible then
-        btn.Text = "TASK ALREADY ACTIVE"
-        task.wait(1)
-        btn.Text = "GET NEW SANTA"
-        return
-    end
-
-    btn.Text = "TALKING..."
-    btn.BackgroundColor3 = Color3.fromRGB(200, 150, 0) -- Orange during process
-    
-    -- Your verified safe sequence
-    rems.PlayerDataEvent:FireServer("ToggleBusy", true)
-    task.wait(0.8)
-    rems.GetNewSanta:InvokeServer()
-    task.wait(0.6)
-    rems.PlayerDataEvent:FireServer("ToggleBusy", false)
-    
-    btn.Text = "SUCCESS!"
-    btn.BackgroundColor3 = Color3.fromRGB(0, 150, 70) -- Green on success
-    task.wait(1)
-    
-    -- Reset button
-    btn.Text = "GET NEW SANTA"
-    btn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-    list.Visible = false
-end
-
--- Function for the Farming Modes
-local function runFarm(m)
+local function run(m)
     list.Visible, getgenv().LoopRunning = false, true
-    main.Text, main.BackgroundColor3 = "FARMING: "..m, Color3.fromRGB(0, 150, 70)
-
-    while getgenv().LoopRunning do
-        pcall(function()
-            if string.find(string.lower(eventLevel.Text), "max") then
-                Client.Network:get("RedeemGift")
-            elseif winterEvent.Visible then
-                Client.Network:get("DeliverPresent")
-                if m == "Games" or m == "All" then
-                    for _, d in ipairs({{26,"WhackAMole"},{101.66,"Matching"},{2.01,"Knitting"},{10,"Flow"}}) do
-                        if not getgenv().LoopRunning then break end
-                        rems.SubmitWinterMinigame:InvokeServer(d[1], d[2], 3) 
-                        task.wait(2)
-                    end
-                end
-            end
-        end)
-        task.wait(1)
+    main.Text, main.BackgroundColor3 = "STOP: "..m, Color3.new(0, 0.6, 0)
+    
+    local function p()
+        for _, d in {{26,"WhackAMole"},{101.66,"Matching"},{2.01,"Knitting"},{10,"Flow"}} do
+            if not getgenv().LoopRunning then break end
+            mR:InvokeServer(d[1], d[2], 3) task.wait(0.83)
+        end
     end
-    main.Text, main.BackgroundColor3 = "SELECT MODE", Color3.fromRGB(30, 30, 30)
+
+    -- The Logic Loop
+    if m == "Santa" then
+        pD:FireServer("ToggleBusy", true)
+        task.wait(0.8)
+        nS:InvokeServer()
+        task.wait(0.6)
+        pD:FireServer("ToggleBusy", false)
+    elseif m == "All" then
+        gR:InvokeServer() task.wait(0.83)
+        p()
+    elseif m == "Games" then 
+        p()
+    else 
+        -- Handles A, B, C, D if they still use strings, otherwise just calls gR
+        gR:InvokeServer(m) task.wait(0.83)
+    end
+
+    getgenv().LoopRunning, main.Text, main.BackgroundColor3 = false, "SELECT MODE", Color3.new(0.1,0.1,0.1)
 end
 
--- Create the Dropdown Options
-local options = {"A", "B", "C", "D", "Games", "All", "Get New Santa"}
-for i, n in ipairs(options) do
+for i, n in {"A","B","C","D","Games","All","Santa"} do
     local b = Instance.new("TextButton", list)
     b.Size, b.Position, b.Text = UDim2.new(1, 0, 0, 40), UDim2.new(0, 0, 0, (i-1)*40), n
-    b.BackgroundColor3, b.TextColor3, b.Font = Color3.fromRGB(40, 40, 40), Color3.new(1,1,1), Enum.Font.Gotham
-    
-    b.MouseButton1Click:Connect(function()
-        if n == "Get New Santa" then
-            RunGetSanta(b)
-        else
-            runFarm(n)
-        end
-    end)
+    b.BackgroundColor3, b.TextColor3 = Color3.new(0,0,0), Color3.new(1,1,1)
+    b.MouseButton1Click:Connect(function() run(n) end)
 end
 
--- Main Button Toggle Logic
 main.MouseButton1Click:Connect(function() 
     if getgenv().LoopRunning then 
         getgenv().LoopRunning = false 
