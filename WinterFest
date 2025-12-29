@@ -1,5 +1,5 @@
 getgenv().AutoLoop = false
-getgenv().FastMode = false -- Default to Safe
+getgenv().FastMode = false 
 
 local lp = game:GetService("Players").LocalPlayer
 local rems = lp:WaitForChild("Remotes")
@@ -25,12 +25,10 @@ local sg = Instance.new("ScreenGui", lp.PlayerGui)
 local main = Instance.new("TextButton", sg)
 local modeBtn = Instance.new("TextButton", sg)
 
--- Main Button Styling
 main.Size, main.Position, main.Text = UDim2.new(0, 180, 0, 45), UDim2.new(0, 30, 0.5, -50), "AUTO FARM: OFF"
 main.BackgroundColor3, main.TextColor3, main.Font, main.TextSize = Color3.fromRGB(150, 30, 30), Color3.new(1, 1, 1), Enum.Font.GothamBold, 16
 Instance.new("UICorner", main)
 
--- Mode Button Styling
 modeBtn.Size, modeBtn.Position, modeBtn.Text = UDim2.new(0, 180, 0, 35), UDim2.new(0, 30, 0.5, 5), "MODE: SAFE"
 modeBtn.BackgroundColor3, modeBtn.TextColor3, modeBtn.Font, modeBtn.TextSize = Color3.fromRGB(50, 50, 50), Color3.new(1, 1, 1), Enum.Font.GothamBold, 14
 Instance.new("UICorner", modeBtn)
@@ -58,14 +56,18 @@ end
 -- THE BRAIN
 task.spawn(function()
     while true do
-        task.wait(0.5)
+        task.wait(0.6) -- Slightly slower loop check for stability
         if getgenv().AutoLoop then
-            -- 1. Check for Max Level (INFINITE REDEEM LOGIC)
+            -- 1. INFINITE REDEEM LOGIC
             if levelLabel.Text:lower():find("max") then
-                StarterGui:SetCore("SendNotification", {Title = "Farm Info", Text = "Max Level! Redeeming...", Duration = 2})
+                StarterGui:SetCore("SendNotification", {Title = "Auto-Redeem", Text = "Max Level! Syncing with server...", Duration = 4})
+                
                 rR:InvokeServer()
-                task.wait(3) -- Wait for server to process redeem and reset level UI
-                continue -- Restart loop cycle immediately
+                
+                -- CRITICAL SYNC: Wait 5 seconds to let server reset Level to 0
+                -- Firing remotes during this reset is what causes the flag.
+                task.wait(5) 
+                continue 
             end
 
             local state = getTask()
@@ -75,7 +77,7 @@ task.spawn(function()
                 pD:FireServer("ToggleBusy", true)
                 task.wait(0.5)
                 nS:InvokeServer()
-                task.wait(3.5) -- Forced slow delay for Santa to prevent kick
+                task.wait(3.5) -- Forced safety for Santa
                 pD:FireServer("ToggleBusy", false)
                 task.wait(1.5)
 
@@ -85,7 +87,7 @@ task.spawn(function()
                     mR:InvokeServer(d[1], d[2], 3)
                     task.wait(delayTime)
                 end
-                task.wait(1)
+                task.wait(1.5)
 
             elseif state ~= "NONE" and state ~= "GET_TASK" then
                 for num = 1, 5 do
@@ -93,7 +95,7 @@ task.spawn(function()
                     gR:InvokeServer(state .. num)
                     task.wait(delayTime + 0.1) 
                 end
-                task.wait(1)
+                task.wait(1.5)
             end
         end
     end
