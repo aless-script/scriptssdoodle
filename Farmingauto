@@ -1,83 +1,122 @@
--- 1. ACCESS GAME INTERNALS (Based on the script you shared)
+-- NEON OVERSIZE VERSION
 local player = game:GetService("Players").LocalPlayer
-local packer = player:WaitForChild("Packer")
-local client = require(packer:WaitForChild("Client"))
+local pgui = player:WaitForChild("PlayerGui")
 
--- 2. CREATE GUI (Simplified to ensure it loads)
+-- 1. KILL PREVIOUS GUI IF EXISTS
+if pgui:FindFirstChild("VEGA_ULTRA") then pgui.VEGA_ULTRA:Destroy() end
+
+-- 2. CREATE MEGA GUI
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "SimpleHunterV4"
-ScreenGui.Parent = game:GetService("CoreGui")
+ScreenGui.Name = "VEGA_ULTRA"
+ScreenGui.Parent = pgui
+ScreenGui.IgnoreGuiInset = true -- Makes it stay even if you reset
 
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 200, 0, 250)
-MainFrame.Position = UDim2.new(0.4, 0, 0.4, 0)
-MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+MainFrame.Size = UDim2.new(0, 400, 0, 450) -- DOUBLE SIZE
+MainFrame.Position = UDim2.new(0.5, -200, 0.5, -225)
+MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+MainFrame.BorderSizePixel = 4
+MainFrame.BorderColor3 = Color3.fromRGB(0, 255, 255) -- BRIGHT NEON BORDER
 MainFrame.Active = true
 MainFrame.Draggable = true
 MainFrame.Parent = ScreenGui
 
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 50)
+Title.BackgroundColor3 = Color3.fromRGB(0, 255, 255)
+Title.Text = "🚨 DOODLE HUNTER: VEGA EDITION 🚨"
+Title.TextColor3 = Color3.new(0,0,0)
+Title.TextSize = 20
+Title.Font = Enum.Font.SourceSansBold
+Title.Parent = MainFrame
+
 local Status = Instance.new("TextLabel")
-Status.Size = UDim2.new(1, 0, 0, 50)
-Status.Text = "Status: READY"
-Status.TextColor3 = Color3.new(1,1,1)
+Status.Size = UDim2.new(1, 0, 0, 80)
+Status.Position = UDim2.new(0, 0, 0.15, 0)
+Status.Text = "STEP 1: STAND IN GRASS\nSTEP 2: CLICK BLUE BUTTON"
+Status.TextColor3 = Color3.new(1, 1, 0)
+Status.TextSize = 22
 Status.BackgroundTransparency = 1
 Status.Parent = MainFrame
 
-local StartBtn = Instance.new("TextButton")
-StartBtn.Size = UDim2.new(0.8, 0, 0, 50)
-StartBtn.Position = UDim2.new(0.1, 0, 0.3, 0)
-StartBtn.Text = "START AUTO-HUNT"
-StartBtn.Parent = MainFrame
-
 local SyncBtn = Instance.new("TextButton")
-SyncBtn.Size = UDim2.new(0.8, 0, 0, 50)
-SyncBtn.Position = UDim2.new(0.1, 0, 0.6, 0)
-SyncBtn.Text = "SYNC AREA"
+SyncBtn.Size = UDim2.new(0.9, 0, 0, 80)
+SyncBtn.Position = UDim2.new(0.05, 0, 0.4, 0)
+SyncBtn.Text = "🔄 SYNC LOCATION (CLICK ME)"
+SyncBtn.BackgroundColor3 = Color3.fromRGB(0, 120, 255)
+SyncBtn.TextSize = 22
+SyncBtn.TextColor3 = Color3.new(1,1,1)
 SyncBtn.Parent = MainFrame
 
--- 3. LOGIC
-getgenv().Running = false
-getgenv().SavedArea = nil
-getgenv().SavedSub = "WildGrass"
+local StartBtn = Instance.new("TextButton")
+StartBtn.Size = UDim2.new(0.9, 0, 0, 100)
+StartBtn.Position = UDim2.new(0.05, 0, 0.65, 0)
+StartBtn.Text = "OFF"
+StartBtn.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+StartBtn.TextSize = 40 -- HUGE TEXT
+StartBtn.TextColor3 = Color3.new(1,1,1)
+StartBtn.Parent = MainFrame
 
--- Use the "Inspiration" script method to get the area
+-- 3. LOGIC (Safe Loading)
+local client
+pcall(function()
+    client = require(player.Packer.Client)
+end)
+
+getgenv().Hunting = false
+getgenv().Area = nil
+
 SyncBtn.MouseButton1Click:Connect(function()
-    local area = client.DataManager.RegionData.ChunkName or client.DataManager.RegionData.Reference
-    if area then
-        getgenv().SavedArea = area
-        Status.Text = "Area Locked: " .. tostring(area)
+    if not client then 
+        Status.Text = "ERROR: Could not find Game Client!\nTry running while in grass."
+        return 
+    end
+    
+    local current = client.DataManager.RegionData.ChunkName or client.DataManager.RegionData.Reference
+    if current then
+        getgenv().Area = current
+        Status.Text = "✅ AREA LOCKED:\n" .. tostring(current)
+        Status.TextColor3 = Color3.new(0, 1, 0)
     else
-        Status.Text = "Error: Stand in Grass!"
+        Status.Text = "❌ ERROR:\nStand in grass first!"
     end
 end)
 
 StartBtn.MouseButton1Click:Connect(function()
-    getgenv().Running = not getgenv().Running
-    StartBtn.Text = getgenv().Running and "STOP" or "START AUTO-HUNT"
+    if not getgenv().Area then 
+        Status.Text = "⚠️ SYNC FIRST!"
+        return 
+    end
+    
+    getgenv().Hunting = not getgenv().Hunting
+    StartBtn.Text = getgenv().Hunting and "RUNNING..." or "OFF"
+    StartBtn.BackgroundColor3 = getgenv().Hunting and Color3.fromRGB(0, 200, 0) or Color3.fromRGB(150, 0, 0)
 end)
 
--- 4. THE LOOP
+-- 4. BATTLE LOOP
 task.spawn(function()
-    while true do
-        task.wait(1.5)
-        if getgenv().Running and getgenv().SavedArea then
-            local bData = player.Remotes.PlayerDataFunc:InvokeServer("GetBattleData")
+    while task.wait(1) do
+        if getgenv().Hunting and getgenv().Area then
+            local success, bData = pcall(function() 
+                return player.Remotes.PlayerDataFunc:InvokeServer("GetBattleData") 
+            end)
             
-            if not bData then
+            if success and not bData then
                 -- TRIGGER ENCOUNTER
-                player.Remotes.DudeWhyld:FireServer(getgenv().SavedArea, getgenv().SavedSub)
-                Status.Text = "📡 Searching..."
-            else
-                local wild = bData.Opponent
-                -- Check for Rares (Misprint or 5+ Stars)
-                if wild.IsMisprint or (wild.Stars and wild.Stars >= 5) then
-                    getgenv().Running = false
-                    Status.Text = "✨ RARE FOUND! STOPPED."
+                player.Remotes.DudeWhyld:FireServer(getgenv().Area, "WildGrass")
+                task.wait(2)
+            elseif success and bData and bData.Opponent then
+                local opp = bData.Opponent
+                -- Rare Check (5 Stars or Misprint)
+                if opp.IsMisprint or (opp.Stars and opp.Stars >= 5) then
+                    getgenv().Hunting = false
+                    StartBtn.Text = "✨ RARE! STOPPED"
+                    StartBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 0)
+                    Status.Text = "FOUND: " .. tostring(opp.Name)
                 else
-                    -- Auto-Run if not rare
+                    -- Auto Run
                     game:GetService("ReplicatedStorage").Remotes.BattleRemote:FireServer("Run")
-                    Status.Text = "🏃 Running from " .. tostring(wild.Name)
-                    repeat task.wait(1) until player.Remotes.PlayerDataFunc:InvokeServer("GetBattleData") == nil
+                    repeat task.wait(0.5) until player.Remotes.PlayerDataFunc:InvokeServer("GetBattleData") == nil
                 end
             end
         end
