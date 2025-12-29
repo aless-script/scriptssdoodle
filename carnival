@@ -1,58 +1,57 @@
-getgenv().AutoFarm = true -- Set to false to stop
+getgenv().AutoFarm = true 
 
-local player = game:GetService("Players").LocalPlayer
-local remote = player:WaitForChild("Remotes"):WaitForChild("PlayerDataFunc")
+local remote = game:GetService("Players").LocalPlayer:WaitForChild("Remotes"):WaitForChild("PlayerDataFunc")
 
+-- Config with safety cooldowns (Fishing is 1m, others are 3m)
 local gameConfigs = {
-    {id = "flow",      display = "Fishing",   score = "S5"},
-    {id = "dunk",      display = "Dunk Tank", score = "Hards"},
-    {id = "slingshot", display = "Slingshot", score = 90},
-    {id = "cooking",   display = "Cooking",   score = 5000},
-    {id = "tys",       display = "Hammer",    score = 100}
+    {id = "flow",      display = "Fishing",   score = "S5",    waitDefault = 65},
+    {id = "dunk",      display = "Dunk Tank", score = "Hards", waitDefault = 185},
+    {id = "slingshot", display = "Slingshot", score = 90,      waitDefault = 185},
+    {id = "cooking",   display = "Cooking",   score = 5000,    waitDefault = 185},
+    {id = "tys",       display = "Hammer",    score = 100,     waitDefault = 185}
 }
 
-local function notify(title, msg)
+local function safeNotify(title, msg)
     game:GetService("StarterGui"):SetCore("SendNotification", {
         Title = title, Text = msg, Duration = 3
     })
 end
 
--- Load the external script once
-task.spawn(function()
-    loadstring(game:HttpGet("https://raw.githubusercontent.com/aless-script/scriptssdoodle/refs/heads/main/carnival"))()
-end)
-
--- Main Loop
-task.spawn(function()
-    notify("AutoFarm Active", "Checking for ready games every 20s...")
-    
-    while getgenv().AutoFarm do
-        for _, gameData in ipairs(gameConfigs) do
-            -- 1. Ask server directly if game is ready
+-- Function to handle each game individually in its own safe thread
+local function startSafeLoop(gameData)
+    task.spawn(function()
+        while getgenv().AutoFarm do
+            -- 1. Check status
             local status = remote:InvokeServer("GetCarnivalCooldown", gameData.id)
             
             local isReady = false
             if type(status) == "table" then
                 for k, v in pairs(status) do
-                    if tostring(k):lower() == "ready" or tostring(v):lower() == "ready" then
-                        isReady = true
-                        break
-                    end
+                    if tostring(k):lower() == "ready" or tostring(v):lower() == "ready" then isReady = true break end
                 end
             elseif tostring(status):lower() == "ready" then
                 isReady = true
             end
 
-            -- 2. If server says ready, fire the score
             if isReady then
-                task.wait(1) -- Safety delay
-                local success = remote:InvokeServer("SendCarnivalScore", gameData.id, gameData.score)
-                if success then
-                    notify("✅ " .. gameData.display, "Reward claimed successfully!")
-                end
+                -- 2. Claim Reward
+                task.wait(2) -- Human-like delay
+                remote:InvokeServer("SendCarnivalScore", gameData.id, gameData.score)
+                safeNotify("✅ " .. gameData.display, "Claimed! Sleeping for " .. gameData.waitDefault .. "s")
+                
+                -- 3. Long Sleep (Wait for the known cooldown time)
+                task.wait(gameData.waitDefault)
+            else
+                -- 4. Not ready? Wait 15s before checking again (lowers traffic)
+                task.wait(15)
             end
         end
-        
-        task.wait(20) -- Wait 20 seconds before checking all games again
-    end
-end)
+    end)
+end
+
+-- Launch the loops
+safeNotify("Stealth Farm", "Starting optimized background threads...")
+for _, data in ipairs(gameConfigs) do
+    startSafeLoop(data)
+    task.wait(1) -- Stagger the start of each check so they don't fire at once
+end
