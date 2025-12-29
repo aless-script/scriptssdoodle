@@ -1,0 +1,88 @@
+getgenv().AutoFarm = true 
+
+local player = game:GetService("Players").LocalPlayer
+local remote = player:WaitForChild("Remotes"):WaitForChild("PlayerDataFunc")
+
+-- The 5 Carnival Games
+local gameConfigs = {
+    {id = "flow",      display = "Fishing",   score = "S5"},
+    {id = "dunk",      display = "Dunk Tank", score = "Hards"},
+    {id = "slingshot", display = "Slingshot", score = 90},
+    {id = "cooking",   display = "Cooking",   score = 5000},
+    {id = "tys",       display = "Hammer",    score = 100}
+}
+
+-- Notification function for status updates
+local function notify(title, msg)
+    game:GetService("StarterGui"):SetCore("SendNotification", {
+        Title = title, Text = msg, Duration = 5
+    })
+end
+
+-- Function to check actual currency balance for verification
+local function getTickets()
+    local data = remote:InvokeServer("GetPlayerData")
+    if data and data.Currencies then
+        -- Checks for 'Tickets' or 'EventTickets'
+        return tonumber(data.Currencies.Tickets or data.Currencies.EventTickets or 0)
+    end
+    return 0
+end
+
+-- Dedicated manager for each individual game
+local function manageGame(data)
+    task.spawn(function()
+        while getgenv().AutoFarm do
+            -- 1. Ask server for the current cooldown value
+            local status = remote:InvokeServer("GetCarnivalCooldown", data.id)
+            
+            local waitTime = 0
+            local isReady = false
+
+            -- 2. Parse the return (handle numbers, strings, or tables)
+            if type(status) == "table" then
+                for k, v in pairs(status) do
+                    local val = tonumber(v) or tonumber(k)
+                    if val then waitTime = val break end
+                    if tostring(v):lower() == "ready" or tostring(k):lower() == "ready" then isReady = true break end
+                end
+            elseif tonumber(status) then
+                waitTime = tonumber(status)
+            elseif tostring(status):lower() == "ready" then
+                isReady = true
+            end
+
+            -- 3. The "Wait and Fire" Logic
+            if isReady then
+                local preTix = getTickets()
+                
+                -- Small human-like delay before firing
+                task.wait(math.random(1, 3)) 
+                remote:InvokeServer("SendCarnivalScore", data.id, data.score)
+                
+                -- Verify if tickets actually increased
+                task.wait(2)
+                if getTickets() > preTix then
+                    notify("💰 " .. data.display, "Tickets earned! Checking next cooldown...")
+                end
+            else
+                -- If not ready, wait the EXACT time the server told us to wait
+                -- If no time was given, default to 20 seconds
+                local sleep = (waitTime > 0) and waitTime or 20
+                
+                -- Optional: print to console for debugging
+                print("[Carnival] " .. data.display .. " is on cooldown. Waiting " .. sleep .. "s")
+                
+                task.wait(sleep + 1) -- 1s buffer to ensure server clock resets
+            end
+        end
+    end)
+end
+
+-- Launch all threads
+notify("Farm Active", "Precision timer-based farm started. No GUI loaded.")
+
+for _, config in ipairs(gameConfigs) do
+    manageGame(config)
+    task.wait(1) -- Stagger starts to prevent remote overlap
+end
