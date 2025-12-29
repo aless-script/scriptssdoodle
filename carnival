@@ -1,14 +1,26 @@
 getgenv().AutoFarm = true 
 
-local remote = game:GetService("Players").LocalPlayer:WaitForChild("Remotes"):WaitForChild("PlayerDataFunc")
+local player = game:GetService("Players").LocalPlayer
+local remote = player:WaitForChild("Remotes"):WaitForChild("PlayerDataFunc")
 
+-- Calibrated Timings: 180s (3m) for stands, 60s (1m) for fishing
 local gameConfigs = {
-    {id = "flow",      display = "Fishing",   score = "S5",    cd = 65},
-    {id = "dunk",      display = "Dunk Tank", score = "Hards", cd = 185},
-    {id = "slingshot", display = "Slingshot", score = 90,      cd = 185},
-    {id = "cooking",   display = "Cooking",   score = 5000,    cd = 185},
-    {id = "tys",       display = "Hammer",    score = 100,     cd = 185}
+    {id = "flow",      display = "Fishing",   score = "S5",    cd = 60},
+    {id = "dunk",      display = "Dunk Tank", score = "Hards", cd = 180},
+    {id = "slingshot", display = "Slingshot", score = 90,      cd = 180},
+    {id = "cooking",   display = "Cooking",   score = 5000,    cd = 180},
+    {id = "tys",       display = "Hammer",    score = 100,     cd = 180}
 }
+
+-- Function to check actual currency balance
+local function getTickets()
+    local data = remote:InvokeServer("GetPlayerData")
+    if data and data.Currencies then
+        -- Checks for 'Tickets' or 'EventTickets'
+        return tonumber(data.Currencies.Tickets or data.Currencies.EventTickets or 0)
+    end
+    return 0
+end
 
 local function notify(title, msg)
     game:GetService("StarterGui"):SetCore("SendNotification", {
@@ -16,48 +28,54 @@ local function notify(title, msg)
     })
 end
 
--- Load the External GUI once
-task.spawn(function()
-    loadstring(game:HttpGet("https://raw.githubusercontent.com/aless-script/scriptssdoodle/refs/heads/main/carnival"))()
-end)
-
-local function runGameLoop(data)
+local function startSmartLoop(gameData)
     task.spawn(function()
         while getgenv().AutoFarm do
-            -- Step 1: Check Cooldown (Silent)
-            local response = remote:InvokeServer("GetCarnivalCooldown", data.id)
-            
+            -- 1. Check if the server says it's ready
+            local status = remote:InvokeServer("GetCarnivalCooldown", gameData.id)
             local isReady = false
-            if type(response) == "table" then
-                for k, v in pairs(response) do
+            
+            if type(status) == "table" then
+                for k, v in pairs(status) do
                     if tostring(v):lower() == "ready" or tostring(k):lower() == "ready" then isReady = true break end
                 end
-            elseif tostring(response):lower() == "ready" then
+            elseif tostring(status):lower() == "ready" then
                 isReady = true
             end
 
             if isReady then
-                task.wait(math.random(3, 7)) -- Randomize delay to look human
-                local success = remote:InvokeServer("SendCarnivalScore", data.id, data.score)
+                -- 2. Capture tickets BEFORE firing
+                local preTickets = getTickets()
                 
-                -- ONLY notify on a successful claim
-                if success then
-                    notify("💰 Ticket Claimed", "Earned rewards for " .. data.display)
+                task.wait(math.random(2, 4)) -- Human delay
+                remote:InvokeServer("SendCarnivalScore", gameData.id, gameData.score)
+                
+                -- 3. Verification: Wait for server to update data
+                task.wait(3) 
+                local postTickets = getTickets()
+                
+                if postTickets > preTickets then
+                    -- ACTUAL SUCCESS: Tickets went up
+                    notify("💰 " .. gameData.display, "Earned " .. (postTickets - preTickets) .. " tickets!")
+                    
+                    -- 4. SMART SLEEP: Stop firing remotes for the full cooldown
+                    task.wait(gameData.cd)
+                else
+                    -- FAILED CLAIM: Server didn't give tickets (likely internal cooldown)
+                    -- Wait 30s before trying again to avoid spamming
+                    task.wait(30)
                 end
-                
-                task.wait(data.cd) -- Sleep for the duration of the cooldown
             else
-                -- If not ready, wait a longer time (30s) before checking again to reduce remote spam
-                task.wait(30)
+                -- NOT READY: Wait 20s before checking this specific game again
+                task.wait(20)
             end
         end
     end)
 end
 
--- Start the silent farm
-notify("Silent Farm", "Autofarm is now running in the background. Notifications will only appear when tickets are earned.")
-
-for i, config in ipairs(gameConfigs) do
-    task.wait(2) -- Stagger the start of each game loop
-    runGameLoop(config)
+-- Launch the loops with staggered starts
+notify("Smart Farm", "Monitoring tickets. No more notification spam.")
+for _, data in ipairs(gameConfigs) do
+    startSmartLoop(data)
+    task.wait(1.5)
 end
