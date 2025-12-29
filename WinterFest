@@ -1,5 +1,5 @@
 getgenv().AutoLoop = false
-getgenv().FastMode = false 
+getgenv().FastMode = false -- Default to Safe
 
 local lp = game:GetService("Players").LocalPlayer
 local rems = lp:WaitForChild("Remotes")
@@ -25,11 +25,13 @@ local sg = Instance.new("ScreenGui", lp.PlayerGui)
 local main = Instance.new("TextButton", sg)
 local modeBtn = Instance.new("TextButton", sg)
 
-main.Size, main.Position, main.Text = UDim2.new(0, 180, 0, 45), UDim2.new(0, 30, 0.5, -50), "FARM: OFF"
+-- Main Button Styling
+main.Size, main.Position, main.Text = UDim2.new(0, 180, 0, 45), UDim2.new(0, 30, 0.5, -50), "AUTO FARM: OFF"
 main.BackgroundColor3, main.TextColor3, main.Font, main.TextSize = Color3.fromRGB(150, 30, 30), Color3.new(1, 1, 1), Enum.Font.GothamBold, 16
 Instance.new("UICorner", main)
 
-modeBtn.Size, modeBtn.Position, modeBtn.Text = UDim2.new(0, 180, 0, 35), UDim2.new(0, 30, 0.5, 5), "MODE: SAFE (1.2s)"
+-- Mode Button Styling
+modeBtn.Size, modeBtn.Position, modeBtn.Text = UDim2.new(0, 180, 0, 35), UDim2.new(0, 30, 0.5, 5), "MODE: SAFE"
 modeBtn.BackgroundColor3, modeBtn.TextColor3, modeBtn.Font, modeBtn.TextSize = Color3.fromRGB(50, 50, 50), Color3.new(1, 1, 1), Enum.Font.GothamBold, 14
 Instance.new("UICorner", modeBtn)
 
@@ -39,7 +41,7 @@ local function getTask()
         for _, v in pairs(winterUI:GetDescendants()) do
             if v:IsA("TextLabel") and v.Visible and v.Text ~= "" then
                 local t = v.Text:upper()
-                if t:find("SANTA") or t:find("CLAUS") then taskText = "GET_TASK"
+                if t:find("SANTA") then taskText = "GET_TASK"
                 elseif t:find("DELIVER") then 
                     if t:find("A") then taskText = "A"
                     elseif t:find("B") then taskText = "B"
@@ -58,25 +60,22 @@ task.spawn(function()
     while true do
         task.wait(0.5)
         if getgenv().AutoLoop then
-            -- 1. Check for Max Level
+            -- 1. Check for Max Level (INFINITE REDEEM LOGIC)
             if levelLabel.Text:lower():find("max") then
+                StarterGui:SetCore("SendNotification", {Title = "Farm Info", Text = "Max Level! Redeeming...", Duration = 2})
                 rR:InvokeServer()
-                getgenv().AutoLoop = false
-                main.Text = "FARM: OFF"
-                main.BackgroundColor3 = Color3.fromRGB(150, 30, 30)
-                continue
+                task.wait(3) -- Wait for server to process redeem and reset level UI
+                continue -- Restart loop cycle immediately
             end
 
             local state = getTask()
             local delayTime = getgenv().FastMode and 0.5 or 1.2
 
             if state == "GET_TASK" then
-                -- CRITICAL: ALWAYS SLOW FOR SANTA REGARDLESS OF MODE
                 pD:FireServer("ToggleBusy", true)
-                task.wait(0.8)
+                task.wait(0.5)
                 nS:InvokeServer()
-                -- 3.5s buffer ensures the server fully finishes the last task before the new one starts
-                task.wait(3.5) 
+                task.wait(3.5) -- Forced slow delay for Santa to prevent kick
                 pD:FireServer("ToggleBusy", false)
                 task.wait(1.5)
 
@@ -86,7 +85,7 @@ task.spawn(function()
                     mR:InvokeServer(d[1], d[2], 3)
                     task.wait(delayTime)
                 end
-                task.wait(1.5)
+                task.wait(1)
 
             elseif state ~= "NONE" and state ~= "GET_TASK" then
                 for num = 1, 5 do
@@ -94,7 +93,7 @@ task.spawn(function()
                     gR:InvokeServer(state .. num)
                     task.wait(delayTime + 0.1) 
                 end
-                task.wait(1.5)
+                task.wait(1)
             end
         end
     end
@@ -103,7 +102,7 @@ end)
 -- Toggle Actions
 main.MouseButton1Click:Connect(function()
     getgenv().AutoLoop = not getgenv().AutoLoop
-    main.Text = getgenv().AutoLoop and "FARM: ON" or "FARM: OFF"
+    main.Text = getgenv().AutoLoop and "AUTO FARM: ON" or "AUTO FARM: OFF"
     main.BackgroundColor3 = getgenv().AutoLoop and Color3.fromRGB(0, 150, 70) or Color3.fromRGB(150, 30, 30)
 end)
 
