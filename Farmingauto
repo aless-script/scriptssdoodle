@@ -1,99 +1,85 @@
--- 1. WAIT FOR GAME DATA
+-- 1. ACCESS GAME INTERNALS (Based on the script you shared)
 local player = game:GetService("Players").LocalPlayer
 local packer = player:WaitForChild("Packer")
-local database = packer:WaitForChild("Database")
 local client = require(packer:WaitForChild("Client"))
-local doodleInfo = require(database:WaitForChild("DoodleInfo"))
 
--- 2. GUI SETUP
+-- 2. CREATE GUI (Simplified to ensure it loads)
 local ScreenGui = Instance.new("ScreenGui")
-local MainFrame = Instance.new("Frame")
-local StatusLabel = Instance.new("TextLabel")
-local ToggleButton = Instance.new("TextButton")
-local SyncButton = Instance.new("TextButton")
-
+ScreenGui.Name = "SimpleHunterV4"
 ScreenGui.Parent = game:GetService("CoreGui")
-MainFrame.Size = UDim2.new(0, 200, 0, 200)
-MainFrame.Position = UDim2.new(0.1, 0, 0.4, 0)
-MainFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 200, 0, 250)
+MainFrame.Position = UDim2.new(0.4, 0, 0.4, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 MainFrame.Active = true
 MainFrame.Draggable = true
 MainFrame.Parent = ScreenGui
 
-StatusLabel.Size = UDim2.new(1, 0, 0, 40)
-StatusLabel.Text = "Status: Awaiting Sync"
-StatusLabel.TextColor3 = Color3.new(1, 1, 1)
-StatusLabel.Parent = MainFrame
+local Status = Instance.new("TextLabel")
+Status.Size = UDim2.new(1, 0, 0, 50)
+Status.Text = "Status: READY"
+Status.TextColor3 = Color3.new(1,1,1)
+Status.BackgroundTransparency = 1
+Status.Parent = MainFrame
 
-getgenv().HunterEnabled = false
-getgenv().CurrentArea = nil
+local StartBtn = Instance.new("TextButton")
+StartBtn.Size = UDim2.new(0.8, 0, 0, 50)
+StartBtn.Position = UDim2.new(0.1, 0, 0.3, 0)
+StartBtn.Text = "START AUTO-HUNT"
+StartBtn.Parent = MainFrame
 
--- 3. THE "SYNC" LOGIC (Using the Client Module you shared)
-local function SyncFromGame()
-    -- We pull the current chunk directly from the Client module's internal memory
-    local currentChunk = client.DataManager.RegionData.ChunkName or client.DataManager.RegionData.Reference
-    if currentChunk then
-        getgenv().CurrentArea = currentChunk
-        StatusLabel.Text = "✅ Area: " .. tostring(currentChunk)
-        StatusLabel.TextColor3 = Color3.new(0, 1, 0)
+local SyncBtn = Instance.new("TextButton")
+SyncBtn.Size = UDim2.new(0.8, 0, 0, 50)
+SyncBtn.Position = UDim2.new(0.1, 0, 0.6, 0)
+SyncBtn.Text = "SYNC AREA"
+SyncBtn.Parent = MainFrame
+
+-- 3. LOGIC
+getgenv().Running = false
+getgenv().SavedArea = nil
+getgenv().SavedSub = "WildGrass"
+
+-- Use the "Inspiration" script method to get the area
+SyncBtn.MouseButton1Click:Connect(function()
+    local area = client.DataManager.RegionData.ChunkName or client.DataManager.RegionData.Reference
+    if area then
+        getgenv().SavedArea = area
+        Status.Text = "Area Locked: " .. tostring(area)
     else
-        StatusLabel.Text = "❌ Stand in Grass & Click Sync"
-        StatusLabel.TextColor3 = Color3.new(1, 0, 0)
+        Status.Text = "Error: Stand in Grass!"
     end
-end
+end)
 
-SyncButton.Size = UDim2.new(0.9, 0, 0, 40)
-SyncButton.Position = UDim2.new(0.05, 0, 0.3, 0)
-SyncButton.Text = "🔄 SYNC AREA"
-SyncButton.Parent = MainFrame
-SyncButton.MouseButton1Click:Connect(SyncFromGame)
+StartBtn.MouseButton1Click:Connect(function()
+    getgenv().Running = not getgenv().Running
+    StartBtn.Text = getgenv().Running and "STOP" or "START AUTO-HUNT"
+end)
 
--- 4. THE AUTO-ENCOUNTER LOOP
+-- 4. THE LOOP
 task.spawn(function()
     while true do
         task.wait(1.5)
-        if getgenv().HunterEnabled and getgenv().CurrentArea then
-            -- Check if we are in battle using the PlayerDataFunc remote
-            local battleData = player.Remotes.PlayerDataFunc:InvokeServer("GetBattleData")
+        if getgenv().Running and getgenv().SavedArea then
+            local bData = player.Remotes.PlayerDataFunc:InvokeServer("GetBattleData")
             
-            if not battleData or not battleData.Opponent then
-                -- Trigger encounter using the synced Area name
-                -- We use "WildGrass" as a fallback for the sub-area
-                player.Remotes.DudeWhyld:FireServer(getgenv().CurrentArea, "WildGrass")
-                StatusLabel.Text = "📡 Searching..."
+            if not bData then
+                -- TRIGGER ENCOUNTER
+                player.Remotes.DudeWhyld:FireServer(getgenv().SavedArea, getgenv().SavedSub)
+                Status.Text = "📡 Searching..."
             else
-                local wild = battleData.Opponent
-                StatusLabel.Text = "🔍 Found: " .. tostring(wild.Name)
-                
-                -- LOGIC: Stop if 5+ Stars or Misprint
-                local isRare = (wild.Stars and wild.Stars >= 5) or wild.IsMisprint or wild.IsHiddenTrait
-                
-                if isRare then
-                    getgenv().HunterEnabled = false
-                    StatusLabel.Text = "✨ STOPPED: RARE FOUND!"
-                    ToggleButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+                local wild = bData.Opponent
+                -- Check for Rares (Misprint or 5+ Stars)
+                if wild.IsMisprint or (wild.Stars and wild.Stars >= 5) then
+                    getgenv().Running = false
+                    Status.Text = "✨ RARE FOUND! STOPPED."
                 else
                     -- Auto-Run if not rare
                     game:GetService("ReplicatedStorage").Remotes.BattleRemote:FireServer("Run")
-                    repeat task.wait(0.5) until player.Remotes.PlayerDataFunc:InvokeServer("GetBattleData") == nil
+                    Status.Text = "🏃 Running from " .. tostring(wild.Name)
+                    repeat task.wait(1) until player.Remotes.PlayerDataFunc:InvokeServer("GetBattleData") == nil
                 end
             end
         end
     end
-end)
-
-ToggleButton.Size = UDim2.new(0.9, 0, 0, 60)
-ToggleButton.Position = UDim2.new(0.05, 0, 0.6, 0)
-ToggleButton.Text = "START HUNTER"
-ToggleButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-ToggleButton.Parent = MainFrame
-
-ToggleButton.MouseButton1Click:Connect(function()
-    if not getgenv().CurrentArea then
-        StatusLabel.Text = "❌ SYNC FIRST!"
-        return
-    end
-    getgenv().HunterEnabled = not getgenv().HunterEnabled
-    ToggleButton.Text = getgenv().HunterEnabled and "STOPPING..." or "START HUNTER"
-    ToggleButton.BackgroundColor3 = getgenv().HunterEnabled and Color3.fromRGB(200, 50, 50) or Color3.fromRGB(60, 60, 60)
 end)
