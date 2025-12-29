@@ -1,0 +1,131 @@
+getgenv().AutoLoop = false
+getgenv().FastMode = false -- Default to Safe
+
+local lp = game:GetService("Players").LocalPlayer
+local rems = lp:WaitForChild("Remotes")
+local StarterGui = game:GetService("StarterGui")
+
+-- Remotes
+local gR = rems:WaitForChild("DeliverGift")
+local mR = rems:WaitForChild("SubmitWinterMinigame")
+local pD = rems:WaitForChild("PlayerDataEvent")
+local nS = rems:WaitForChild("GetNewSanta")
+local rR = rems:WaitForChild("RedeemGift")
+
+-- UI Detection
+local mainGui = lp:WaitForChild("PlayerGui"):WaitForChild("MainGui")
+local winterUI = mainGui:WaitForChild("WinterEvent")
+local levelLabel = winterUI:WaitForChild("ImageLabel"):WaitForChild("Level")
+
+-- ANTI-AFK
+for i,v in pairs(getconnections(lp.Idled)) do v:Disable() end
+
+-- GUI Setup
+local sg = Instance.new("ScreenGui", lp.PlayerGui)
+local main = Instance.new("TextButton", sg)
+local modeBtn = Instance.new("TextButton", sg)
+
+-- Main Button Styling
+main.Size, main.Position, main.Text = UDim2.new(0, 180, 0, 45), UDim2.new(0, 30, 0.5, -50), "AUTO FARM: OFF"
+main.BackgroundColor3, main.TextColor3, main.Font, main.TextSize = Color3.fromRGB(150, 30, 30), Color3.new(1, 1, 1), Enum.Font.GothamBold, 16
+Instance.new("UICorner", main)
+
+-- Mode Button Styling
+modeBtn.Size, modeBtn.Position, modeBtn.Text = UDim2.new(0, 180, 0, 35), UDim2.new(0, 30, 0.5, 5), "MODE: SAFE"
+modeBtn.BackgroundColor3, modeBtn.TextColor3, modeBtn.Font, modeBtn.TextSize = Color3.fromRGB(50, 50, 50), Color3.new(1, 1, 1), Enum.Font.GothamBold, 14
+Instance.new("UICorner", modeBtn)
+
+local function getTask()
+    local taskText = "NONE"
+    pcall(function()
+        for _, v in pairs(winterUI:GetDescendants()) do
+            if v:IsA("TextLabel") and v.Visible and v.Text ~= "" then
+                local t = v.Text:upper()
+                if t:find("SANTA") then taskText = "GET_TASK"
+                elseif t:find("DELIVER") then 
+                    if t:find("A") then taskText = "A"
+                    elseif t:find("B") then taskText = "B"
+                    elseif t:find("C") then taskText = "C"
+                    elseif t:find("D") then taskText = "D" end
+                elseif t:find("HELP") or t:find("ELF") or t:find("GAME") then taskText = "GAMES"
+                end
+            end
+        end
+    end)
+    return taskText
+end
+
+-- THE BRAIN
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        if getgenv().AutoLoop then
+            -- 1. Check for Max Level
+            if levelLabel.Text:lower():find("max") then
+                rR:InvokeServer()
+                getgenv().AutoLoop = false
+                main.Text = "AUTO FARM: OFF"
+                main.BackgroundColor3 = Color3.fromRGB(150, 30, 30)
+                continue
+            end
+
+            local state = getTask()
+            local delayTime = getgenv().FastMode and 0.5 or 1.2
+
+            if state == "GET_TASK" then
+                pD:FireServer("ToggleBusy", true)
+                task.wait(0.5)
+                nS:InvokeServer()
+                task.wait(3.0) -- Always slow for Santa
+                pD:FireServer("ToggleBusy", false)
+                task.wait(1)
+
+            elseif state == "GAMES" then
+                for _, d in ipairs({{26,"WhackAMole"},{101.66,"Matching"},{2.01,"Knitting"},{10,"Flow"}}) do
+                    if not getgenv().AutoLoop then break end
+                    mR:InvokeServer(d[1], d[2], 3)
+                    task.wait(delayTime)
+                end
+                task.wait(1)
+
+            elseif state ~= "NONE" and state ~= "GET_TASK" then
+                for num = 1, 5 do
+                    if not getgenv().AutoLoop then break end
+                    gR:InvokeServer(state .. num)
+                    task.wait(delayTime + 0.1) -- Houses slightly slower than games
+                end
+                task.wait(1)
+            end
+        end
+    end
+end)
+
+-- Toggle Actions
+main.MouseButton1Click:Connect(function()
+    getgenv().AutoLoop = not getgenv().AutoLoop
+    main.Text = getgenv().AutoLoop and "AUTO FARM: ON" or "AUTO FARM: OFF"
+    main.BackgroundColor3 = getgenv().AutoLoop and Color3.fromRGB(0, 150, 70) or Color3.fromRGB(150, 30, 30)
+end)
+
+modeBtn.MouseButton1Click:Connect(function()
+    getgenv().FastMode = not getgenv().FastMode
+    modeBtn.Text = getgenv().FastMode and "MODE: FAST (0.5s)" or "MODE: SAFE (1.2s)"
+    modeBtn.BackgroundColor3 = getgenv().FastMode and Color3.fromRGB(200, 100, 0) or Color3.fromRGB(50, 50, 50)
+end)
+
+-- Draggable Logic (Both buttons move together)
+local UIS = game:GetService("UserInputService")
+local dragToggle, dragInput, dragStart, startPos, startPosMode
+main.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragToggle, dragStart, startPos = true, input.Position, main.Position
+        startPosMode = modeBtn.Position
+        input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragToggle = false end end)
+    end
+end)
+UIS.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseMovement then dragInput = input end end)
+UIS.InputChanged:Connect(function(input) if input == dragInput and dragToggle then 
+    local delta = input.Position - dragStart
+    main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    modeBtn.Position = UDim2.new(startPosMode.X.Scale, startPosMode.X.Offset + delta.X, startPosMode.Y.Scale, startPosMode.Y.Offset + delta.Y)
+end end)
