@@ -6,15 +6,13 @@ local ToggleButton = Instance.new("TextButton")
 local ConfigFrame = Instance.new("ScrollingFrame")
 local UIListLayout = Instance.new("UIListLayout")
 
--- Setup GUI Properties
-ScreenGui.Name = "DoodleHunter"
+ScreenGui.Name = "DoodleHunter_Fixed"
 ScreenGui.Parent = game:GetService("CoreGui")
 ScreenGui.ResetOnSpawn = false
 
 MainFrame.Name = "MainFrame"
 MainFrame.Parent = ScreenGui
 MainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-MainFrame.BorderSizePixel = 0
 MainFrame.Position = UDim2.new(0.05, 0, 0.3, 0)
 MainFrame.Size = UDim2.new(0, 220, 0, 300)
 MainFrame.Active = true
@@ -22,14 +20,14 @@ MainFrame.Draggable = true
 
 Title.Parent = MainFrame
 Title.Size = UDim2.new(1, 0, 0, 30)
-Title.Text = "PRECISE HUNTER"
+Title.Text = "PRECISE HUNTER v2"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
 
 StatusLabel.Parent = MainFrame
 StatusLabel.Position = UDim2.new(0, 0, 0, 30)
 StatusLabel.Size = UDim2.new(1, 0, 0, 25)
-StatusLabel.Text = "Status: Awaiting Remote..."
+StatusLabel.Text = "Status: Idle"
 StatusLabel.TextColor3 = Color3.fromRGB(255, 200, 0)
 
 ConfigFrame.Parent = MainFrame
@@ -41,7 +39,6 @@ ConfigFrame.CanvasSize = UDim2.new(0, 0, 1.5, 0)
 UIListLayout.Parent = ConfigFrame
 UIListLayout.Padding = UDim.new(0, 5)
 
--- Settings Table
 getgenv().HunterSettings = {
     Enabled = false,
     TargetSpecies = "Pupskey",
@@ -53,7 +50,6 @@ getgenv().HunterSettings = {
     SubArea = nil
 }
 
--- Helper function to create toggles
 local function createToggle(text, settingKey)
     local btn = Instance.new("TextButton")
     btn.Parent = ConfigFrame
@@ -61,7 +57,6 @@ local function createToggle(text, settingKey)
     btn.BackgroundColor3 = getgenv().HunterSettings[settingKey] and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(150, 0, 0)
     btn.Text = text
     btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    
     btn.MouseButton1Click:Connect(function()
         getgenv().HunterSettings[settingKey] = not getgenv().HunterSettings[settingKey]
         btn.BackgroundColor3 = getgenv().HunterSettings[settingKey] and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(150, 0, 0)
@@ -72,65 +67,86 @@ createToggle("Stop Misprint", "StopMisprint")
 createToggle("Stop Skin", "StopSkin")
 createToggle("Stop Hidden Trait", "StopHT")
 
--- Logic Variables
 local player = game:GetService("Players").LocalPlayer
 local remotes = player:WaitForChild("Remotes")
 local dataRemote = remotes:WaitForChild("PlayerDataFunc")
 local encounterRemote = remotes:WaitForChild("DudeWhyld")
 local battleRemote = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("BattleRemote")
 
--- 1. THE HOOK (Detects your area)
+-- 1. ENHANCED HOOK (Captures manual remote OR scanner usage)
 local mt = getrawmetatable(game)
 local oldNamecall = mt.__namecall
 setreadonly(mt, false)
 mt.__namecall = newcclosure(function(self, ...)
     local method = getnamecallmethod()
     local args = {...}
-    if self == encounterRemote and method == "FireServer" then
+    -- Support for DudeWhyld and potential Scanner item usage
+    if (self == encounterRemote or tostring(self) == "DudeWhyld") and method == "FireServer" then
         getgenv().HunterSettings.Area = args[1]
         getgenv().HunterSettings.SubArea = args[2]
-        StatusLabel.Text = "Area: " .. tostring(args[2])
+        StatusLabel.Text = "Area Locked: " .. tostring(args[2])
     end
     return oldNamecall(self, ...)
 end)
 setreadonly(mt, true)
 
--- 2. THE MAIN AUTO-HUNT LOGIC
+-- 2. ROBUST BATTLE CHECKER
+local function getOpponent()
+    local success, battleData = pcall(function() return dataRemote:InvokeServer("GetBattleData") end)
+    if success and battleData then
+        -- Handle different table structures if game updated
+        return battleData.Opponent or battleData.WildDoodle or battleData.Enemy
+    end
+    return nil
+end
+
+-- 3. UPDATED MAIN LOOP
 task.spawn(function()
     while true do
-        task.wait(1)
-        if getgenv().HunterSettings.Enabled and getgenv().HunterSettings.Area then
-            local battleData = dataRemote:InvokeServer("GetBattleData")
-            local wild = battleData and battleData.Opponent
+        task.wait(1.2)
+        if getgenv().HunterSettings.Enabled then
+            local wild = getOpponent()
             
             if not wild then
-                encounterRemote:FireServer(getgenv().HunterSettings.Area, getgenv().HunterSettings.SubArea)
-                task.wait(2)
+                if getgenv().HunterSettings.Area then
+                    StatusLabel.Text = "📡 Triggering Encounter..."
+                    encounterRemote:FireServer(getgenv().HunterSettings.Area, getgenv().HunterSettings.SubArea)
+                    task.wait(2.5) -- Increased wait for server load
+                else
+                    StatusLabel.Text = "❌ No Area Locked!"
+                end
             else
-                local isTrophy = (wild.Stars >= getgenv().HunterSettings.MinStars) or
-                                 (getgenv().HunterSettings.StopMisprint and wild.IsMisprint) or
-                                 (getgenv().HunterSettings.StopSkin and wild.Skin ~= nil) or
-                                 (getgenv().HunterSettings.StopHT and wild.IsHiddenTrait)
+                -- Evaluate Doodle
+                local stars = tonumber(wild.Stars) or 0
+                local misprint = wild.IsMisprint or false
+                local skin = wild.Skin ~= nil
+                local ht = wild.IsHiddenTrait or false
+                
+                local isTrophy = (stars >= getgenv().HunterSettings.MinStars) or
+                                 (getgenv().HunterSettings.StopMisprint and misprint) or
+                                 (getgenv().HunterSettings.StopSkin and skin) or
+                                 (getgenv().HunterSettings.StopHT and ht)
 
                 if isTrophy then
                     getgenv().HunterSettings.Enabled = false
                     StatusLabel.Text = "✨ TARGET FOUND!"
                     StatusLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
-                elseif wild.Name == getgenv().HunterSettings.TargetSpecies then
-                    StatusLabel.Text = "⚔️ Chaining: " .. wild.Name
+                    ToggleButton.Text = "START HUNTER"
+                    ToggleButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+                elseif tostring(wild.Name):lower() == tostring(getgenv().HunterSettings.TargetSpecies):lower() then
+                    StatusLabel.Text = "⚔️ KO: " .. wild.Name
                     battleRemote:FireServer("UseMove", 1)
-                    repeat task.wait(1) until dataRemote:InvokeServer("GetBattleData") == nil
+                    repeat task.wait(1) until getOpponent() == nil
                 else
-                    StatusLabel.Text = "🏃 Running: " .. wild.Name
+                    StatusLabel.Text = "🏃 Run: " .. wild.Name
                     battleRemote:FireServer("Run")
-                    repeat task.wait(1) until dataRemote:InvokeServer("GetBattleData") == nil
+                    repeat task.wait(1) until getOpponent() == nil
                 end
             end
         end
     end
 end)
 
--- Master Toggle Button
 ToggleButton.Parent = MainFrame
 ToggleButton.Position = UDim2.new(0, 5, 0, 250)
 ToggleButton.Size = UDim2.new(1, -10, 0, 40)
@@ -139,11 +155,11 @@ ToggleButton.Text = "START HUNTER"
 ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 
 ToggleButton.MouseButton1Click:Connect(function()
-    if not getgenv().HunterSettings.Area then
-        StatusLabel.Text = "❌ Fire Remote Manually First!"
-        return
-    end
     getgenv().HunterSettings.Enabled = not getgenv().HunterSettings.Enabled
     ToggleButton.Text = getgenv().HunterSettings.Enabled and "STOP HUNTER" or "START HUNTER"
     ToggleButton.BackgroundColor3 = getgenv().HunterSettings.Enabled and Color3.fromRGB(200, 50, 50) or Color3.fromRGB(100, 100, 100)
+    
+    if getgenv().HunterSettings.Enabled and not getgenv().HunterSettings.Area then
+        StatusLabel.Text = "⚠️ Need Area (Fire Remote/Walk)"
+    end
 end)
