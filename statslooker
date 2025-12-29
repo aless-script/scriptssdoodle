@@ -1,0 +1,85 @@
+local ScreenGui = Instance.new("ScreenGui")
+local ScanButton = Instance.new("TextButton")
+local InfoFrame = Instance.new("Frame")
+local InfoText = Instance.new("TextLabel")
+local CloseBtn = Instance.new("TextButton")
+
+-- Setup GUI
+ScreenGui.Name = "ScannerUI"
+ScreenGui.Parent = game:GetService("CoreGui")
+
+-- The Main Scan Button
+ScanButton.Name = "ScanButton"
+ScanButton.Parent = ScreenGui
+ScanButton.BackgroundColor3 = Color3.fromRGB(0, 120, 215)
+ScanButton.Position = UDim2.new(0.85, 0, 0.1, 0)
+ScanButton.Size = UDim2.new(0, 120, 0, 40)
+ScanButton.Text = "🔍 Scan Opponent"
+ScanButton.TextColor3 = Color3.new(1, 1, 1)
+ScanButton.Font = Enum.Font.SourceSansBold
+ScanButton.TextSize = 16
+
+-- The Info Window (Hidden by default)
+InfoFrame.Name = "InfoFrame"
+InfoFrame.Parent = ScreenGui
+InfoFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+InfoFrame.Position = UDim2.new(0.35, 0, 0.3, 0)
+InfoFrame.Size = UDim2.new(0, 300, 0, 250)
+InfoFrame.Visible = false
+InfoFrame.Active = true
+InfoFrame.Draggable = true
+
+InfoText.Parent = InfoFrame
+InfoText.Size = UDim2.new(1, -20, 1, -50)
+InfoText.Position = UDim2.new(0, 10, 0, 10)
+InfoText.BackgroundTransparency = 1
+InfoText.TextColor3 = Color3.new(1, 1, 1)
+InfoText.TextXAlignment = Enum.TextXAlignment.Left
+InfoText.TextYAlignment = Enum.TextYAlignment.Top
+InfoText.TextSize = 18
+InfoText.Text = ""
+
+CloseBtn.Parent = InfoFrame
+CloseBtn.Size = UDim2.new(1, 0, 0, 30)
+CloseBtn.Position = UDim2.new(0, 0, 1, -30)
+CloseBtn.Text = "CLOSE"
+CloseBtn.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+CloseBtn.TextColor3 = Color3.new(1, 1, 1)
+
+-- Logic
+local remote = game:GetService("Players").LocalPlayer:WaitForChild("Remotes"):WaitForChild("PlayerDataFunc")
+
+local function updateScan()
+    local data = remote:InvokeServer("GetBattleData")
+    if data and data.Opponent then
+        local w = data.Opponent
+        local stats = w.Stats or {}
+        
+        InfoText.Text = string.format(
+            "Name: %s\n" ..
+            "⭐ Stars: %s\n" ..
+            "🧬 Trait: %s\n" ..
+            "👤 Gender: %s\n" ..
+            "✨ Misprint: %s\n" ..
+            "🛡️ Hidden Trait: %s\n\n" ..
+            "--- STATS ---\n" ..
+            "HP: %s | Atk: %s | Def: %s\n" ..
+            "M.Atk: %s | M.Def: %s | Spd: %s",
+            tostring(w.Name),
+            tostring(w.Stars or 0),
+            tostring(w.Trait or "Unknown"),
+            tostring(w.Gender or "Unknown"),
+            (w.IsMisprint and "YES" or "No"),
+            (w.IsHiddenTrait and "YES" or "No"),
+            stats.HP or "?", stats.Attack or "?", stats.Defense or "?",
+            stats.MagicAttack or "?", stats.MagicDefense or "?", stats.Speed or "?"
+        )
+        InfoFrame.Visible = true
+    else
+        InfoText.Text = "❌ No Battle Data Found!\nEnter a battle first."
+        InfoFrame.Visible = true
+    end
+end
+
+ScanButton.MouseButton1Click:Connect(updateScan)
+CloseBtn.MouseButton1Click:Connect(function() InfoFrame.Visible = false end)
