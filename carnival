@@ -1,72 +1,58 @@
+getgenv().AutoFarm = true -- Set to false to stop
+
 local player = game:GetService("Players").LocalPlayer
-local pGui = player:WaitForChild("PlayerGui")
 local remote = player:WaitForChild("Remotes"):WaitForChild("PlayerDataFunc")
 
--- Your confirmed data mapping
 local gameConfigs = {
-    {id = "flow",      keywords = {"flow", "fishing"}, score = "S5"},
-    {id = "dunk",      keywords = {"dunk"},            score = "Hards"},
-    {id = "slingshot", keywords = {"slingshot"},       score = 90},
-    {id = "cooking",   keywords = {"cooking"},         score = 5000},
-    {id = "tys",       keywords = {"tys", "hammer"},   score = 100}
+    {id = "flow",      display = "Fishing",   score = "S5"},
+    {id = "dunk",      display = "Dunk Tank", score = "Hards"},
+    {id = "slingshot", display = "Slingshot", score = 90},
+    {id = "cooking",   display = "Cooking",   score = 5000},
+    {id = "tys",       display = "Hammer",    score = 100}
 }
 
 local function notify(title, msg)
     game:GetService("StarterGui"):SetCore("SendNotification", {
-        Title = title, Text = msg, Duration = 4
+        Title = title, Text = msg, Duration = 3
     })
 end
 
--- Function to check and claim
-local function tryClaim(gameId, score, displayName)
-    local success = remote:InvokeServer("SendCarnivalScore", gameId, score)
-    if success then
-        notify("✅ Claimed", displayName)
-    end
-    return success
-end
+-- Load the external script once
+task.spawn(function()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/aless-script/scriptssdoodle/refs/heads/main/carnival"))()
+end)
 
--- 1. THE INITIAL SWEEP (Runs once at start)
-local function initialSweep()
-    notify("System Boot", "Performing initial sweep...")
-    for _, gameData in ipairs(gameConfigs) do
-        local status = remote:InvokeServer("GetCarnivalCooldown", gameData.id)
-        
-        -- Checking if ready (handling table or string)
-        local ready = false
-        if type(status) == "table" then
-            for k, v in pairs(status) do if tostring(v):lower() == "ready" then ready = true end end
-        elseif tostring(status):lower() == "ready" then
-            ready = true
-        end
-
-        if ready then
-            task.wait(1) -- Safety delay
-            tryClaim(gameData.id, gameData.score, gameData.id)
-        end
-    end
-    notify("Sweep Complete", "Now listening for notifications...")
-end
-
--- 2. THE NOTIFICATION LISTENER (The "Trigger")
-pGui.ChildAdded:Connect(function(child)
-    task.wait(0.2) -- Let text load
-    for _, obj in pairs(child:GetDescendants()) do
-        if obj:IsA("TextLabel") then
-            local text = obj.Text:lower()
-            if text:find("ready") or text:find("available") then
-                for _, gameData in ipairs(gameConfigs) do
-                    for _, word in ipairs(gameData.keywords) do
-                        if text:find(word) then
-                            tryClaim(gameData.id, gameData.score, word)
-                            return 
-                        end
+-- Main Loop
+task.spawn(function()
+    notify("AutoFarm Active", "Checking for ready games every 20s...")
+    
+    while getgenv().AutoFarm do
+        for _, gameData in ipairs(gameConfigs) do
+            -- 1. Ask server directly if game is ready
+            local status = remote:InvokeServer("GetCarnivalCooldown", gameData.id)
+            
+            local isReady = false
+            if type(status) == "table" then
+                for k, v in pairs(status) do
+                    if tostring(k):lower() == "ready" or tostring(v):lower() == "ready" then
+                        isReady = true
+                        break
                     end
+                end
+            elseif tostring(status):lower() == "ready" then
+                isReady = true
+            end
+
+            -- 2. If server says ready, fire the score
+            if isReady then
+                task.wait(1) -- Safety delay
+                local success = remote:InvokeServer("SendCarnivalScore", gameData.id, gameData.score)
+                if success then
+                    notify("✅ " .. gameData.display, "Reward claimed successfully!")
                 end
             end
         end
+        
+        task.wait(20) -- Wait 20 seconds before checking all games again
     end
 end)
-
--- Execute the sweep first
-initialSweep()
