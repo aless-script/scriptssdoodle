@@ -1,127 +1,67 @@
--- [ INITIALIZATION ]
-if not game:IsLoaded() then game.Loaded:Wait() end
-local Players = game:GetService("Players")
-local Player = Players.LocalPlayer
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+-- [[ STANDALONE DOODLE SPY TOOL ]]
+local Player = game:GetService("Players").LocalPlayer
+local PlayerGui = Player:WaitForChild("PlayerGui")
 
--- [ INTERNAL MODULE ACCESS ]
-local Packer = Player:WaitForChild("Packer")
-local Database = Packer:WaitForChild("Database")
-local Client = require(Packer:WaitForChild("Client"))
-local DoodleInfo = require(Database:WaitForChild("DoodleInfo"))
-local Skins = require(Database:WaitForChild("Skins")).Sprites
+-- Clean up old UI if it exists
+if PlayerGui:FindFirstChild("SpyHUD") then PlayerGui.SpyHUD:Destroy() end
 
--- [ SETTINGS ]
-getgenv().Enabled = false
-local Config = {
-    TargetStars = 5,
-    TargetTrait = "Any",
-    TargetSkin = "Any",
-    StopOnMisprint = true,
-    AutoRun = true
-}
-
--- [ UI CONSTRUCTION ]
-local sg = Instance.new("ScreenGui", Player.PlayerGui)
-sg.Name = "DoodleMasterStandalone"
-
+-- [ CREATE UI ]
+local sg = Instance.new("ScreenGui", PlayerGui); sg.Name = "SpyHUD"
 local main = Instance.new("Frame", sg)
-main.Size = UDim2.new(0, 300, 0, 250)
-main.Position = UDim2.new(0.5, -150, 0.5, -125)
-main.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+main.Size = UDim2.new(0, 280, 0, 220)
+main.Position = UDim2.new(0, 20, 0.5, -110) -- Left side of screen
+main.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
 main.BorderSizePixel = 2
+main.BorderColor3 = Color3.fromRGB(0, 180, 255)
 main.Draggable = true
 main.Active = true
 
-local title = Instance.new("TextLabel", main)
-title.Size = UDim2.new(1, 0, 0, 40)
-title.Text = "DOODLE AUTO-FARM V2"
-title.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
-title.TextColor3 = Color3.new(1, 1, 1)
+local header = Instance.new("TextLabel", main)
+header.Size = UDim2.new(1, 0, 0, 35)
+header.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+header.Text = "🔍 DOODLE INSPECTOR"
+header.TextColor3 = Color3.new(1, 1, 1)
+header.TextSize = 16
+header.Font = Enum.Font.GothamBold
 
-local status = Instance.new("TextLabel", main)
-status.Size = UDim2.new(1, 0, 0, 40)
-status.Position = UDim2.new(0, 0, 0.2, 0)
-status.Text = "Status: Idle"
-status.TextColor3 = Color3.new(0.8, 0.8, 0.8)
-status.BackgroundTransparency = 1
+local info = Instance.new("TextLabel", main)
+info.Size = UDim2.new(0.9, 0, 0.7, 0)
+info.Position = UDim2.new(0.05, 0, 0.22, 0)
+info.BackgroundTransparency = 1
+info.TextColor3 = Color3.new(0.9, 0.9, 0.9)
+info.TextSize = 16
+info.TextXAlignment = Enum.TextXAlignment.Left
+info.TextYAlignment = Enum.TextYAlignment.Top
+info.Text = "Waiting for battle..."
 
-local toggle = Instance.new("TextButton", main)
-toggle.Size = UDim2.new(0.8, 0, 0, 50)
-toggle.Position = UDim2.new(0.1, 0, 0.6, 0)
-toggle.Text = "START HUNTING"
-toggle.BackgroundColor3 = Color3.fromRGB(0, 100, 0)
-toggle.TextColor3 = Color3.new(1, 1, 1)
-
--- [ CORE LOGIC ]
-local function GetActiveChunk()
-    -- Directly asks the game's DataManager for the true active chunk name
-    local name = "Unknown"
-    pcall(function()
-        name = Client.DataManager.RegionData.ChunkName or Client.DataManager.RegionData.Reference
-    end)
-    return name
-end
-
-local function CheckDoodle(enemy)
-    if not enemy then return false end
-    
-    local starMatch = (enemy.Star or 0) >= Config.TargetStars
-    local misprintMatch = Config.StopOnMisprint and enemy.Shiny
-    
-    -- Check Skin Name if applicable
-    local skinMatch = false
-    if Config.TargetSkin == "Any" then
-        skinMatch = true
-    elseif enemy.Skin and enemy.Skin ~= 0 then
-        local skinData = Skins[enemy.Name] and Skins[enemy.Name][enemy.Skin]
-        if skinData and skinData.Name == Config.TargetSkin then
-            skinMatch = true
-        end
-    end
-
-    return starMatch or misprintMatch or skinMatch
-end
-
-toggle.MouseButton1Click:Connect(function()
-    getgenv().Enabled = not getgenv().Enabled
-    toggle.Text = getgenv().Enabled and "STOP" or "START HUNTING"
-    toggle.BackgroundColor3 = getgenv().Enabled and Color3.fromRGB(100, 0, 0) or Color3.fromRGB(0, 100, 0)
-end)
-
--- [ MAIN LOOP ]
+-- [ DATA REFRESH LOGIC ]
 task.spawn(function()
-    while true do
-        task.wait(1.2)
-        if getgenv().Enabled then
-            local currentChunk = GetActiveChunk()
-            status.Text = "Area: " .. tostring(currentChunk)
-
-            -- Check if we are already in battle
-            local battleData = Player.Remotes.PlayerDataFunc:InvokeServer("GetBattleData")
+    while task.wait(0.5) do
+        local success, battleData = pcall(function()
+            return Player.Remotes.PlayerDataFunc:InvokeServer("GetBattleData")
+        end)
+        
+        if success and battleData and battleData.Opponent then
+            local enemy = battleData.Opponent
             
-            if not battleData then
-                -- Not in battle: Trigger one
-                status.Text = "📡 Triggering: " .. currentChunk
-                Player.Remotes.DudeWhyld:FireServer(currentChunk, "WildGrass")
-            else
-                -- In battle: Check the enemy
-                local enemy = battleData.Opponent
-                if enemy then
-                    status.Text = "⚔️ Encounter: " .. tostring(enemy.Name)
-                    
-                    if CheckDoodle(enemy) then
-                        getgenv().Enabled = false
-                        status.Text = "✨ RARE FOUND! ✨"
-                        toggle.Text = "FINISHED"
-                        -- Optional: Play a sound or notify
-                    elseif Config.AutoRun then
-                        -- Escape battle
-                        ReplicatedStorage.Remotes.BattleRemote:FireServer("Run")
-                        repeat task.wait(0.5) until Player.Remotes.PlayerDataFunc:InvokeServer("GetBattleData") == nil
-                    end
-                end
-            end
+            -- Dynamic Star coloring
+            local starRating = enemy.Star or 0
+            if starRating >= 6 then main.BorderColor3 = Color3.fromRGB(255, 0, 0) -- Red for 6*
+            elseif starRating >= 5 then main.BorderColor3 = Color3.fromRGB(255, 215, 0) -- Gold for 5*
+            else main.BorderColor3 = Color3.fromRGB(0, 180, 255) end -- Blue for normal
+
+            info.Text = string.format(
+                "Name: %s\nStars: %s ⭐\nTrait: %s\nSkin: %s\nHeld Item: %s\nMisprint: %s",
+                tostring(enemy.Name or "???"),
+                tostring(starRating),
+                tostring(enemy.Trait or "None"),
+                tostring(enemy.Skin or "Default"),
+                tostring(enemy.HeldItem or "None"),
+                enemy.Shiny and "YES ✨" or "No"
+            )
+        else
+            info.Text = "❌ NO ACTIVE BATTLE\n\nWalk into grass to\nsee opponent stats."
+            main.BorderColor3 = Color3.fromRGB(100, 100, 100)
         end
     end
 end)
