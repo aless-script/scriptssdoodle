@@ -1,67 +1,68 @@
--- [[ STANDALONE DOODLE SPY TOOL ]]
+-- [[ UPDATED DOODLE INSPECTOR - 2025 ]]
 local Player = game:GetService("Players").LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
 
--- Clean up old UI if it exists
-if PlayerGui:FindFirstChild("SpyHUD") then PlayerGui.SpyHUD:Destroy() end
+-- Cleanup
+if PlayerGui:FindFirstChild("DoodleSpy2025") then PlayerGui.DoodleSpy2025:Destroy() end
 
--- [ CREATE UI ]
-local sg = Instance.new("ScreenGui", PlayerGui); sg.Name = "SpyHUD"
+-- [ UI CONSTRUCTION ]
+local sg = Instance.new("ScreenGui", PlayerGui); sg.Name = "DoodleSpy2025"
 local main = Instance.new("Frame", sg)
-main.Size = UDim2.new(0, 280, 0, 220)
-main.Position = UDim2.new(0, 20, 0.5, -110) -- Left side of screen
-main.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+main.Size = UDim2.new(0, 300, 0, 240)
+main.Position = UDim2.new(0, 15, 0.5, -120)
+main.BackgroundColor3 = Color3.fromRGB(18, 18, 28)
 main.BorderSizePixel = 2
-main.BorderColor3 = Color3.fromRGB(0, 180, 255)
+main.BorderColor3 = Color3.fromRGB(0, 200, 255)
 main.Draggable = true
 main.Active = true
 
-local header = Instance.new("TextLabel", main)
-header.Size = UDim2.new(1, 0, 0, 35)
-header.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
-header.Text = "🔍 DOODLE INSPECTOR"
-header.TextColor3 = Color3.new(1, 1, 1)
-header.TextSize = 16
-header.Font = Enum.Font.GothamBold
+local corner = Instance.new("UICorner", main); corner.CornerRadius = UDim.new(0, 8)
+local stroke = Instance.new("UIStroke", main); stroke.Thickness = 3; stroke.Color = main.BorderColor3
+
+local title = Instance.new("TextLabel", main)
+title.Size = UDim2.new(1, 0, 0, 40); title.BackgroundColor3 = Color3.fromRGB(35, 35, 55)
+title.Text = "🔍 DOODLE SPY v2.5"; title.TextColor3 = Color3.new(1,1,1); title.Font = Enum.Font.GothamBold
 
 local info = Instance.new("TextLabel", main)
-info.Size = UDim2.new(0.9, 0, 0.7, 0)
-info.Position = UDim2.new(0.05, 0, 0.22, 0)
-info.BackgroundTransparency = 1
-info.TextColor3 = Color3.new(0.9, 0.9, 0.9)
-info.TextSize = 16
-info.TextXAlignment = Enum.TextXAlignment.Left
-info.TextYAlignment = Enum.TextYAlignment.Top
-info.Text = "Waiting for battle..."
+info.Size = UDim2.new(0.9, 0, 0.75, 0); info.Position = UDim2.new(0.05, 0, 0.2, 0)
+info.BackgroundTransparency = 1; info.TextColor3 = Color3.new(0.9, 0.9, 0.9)
+info.TextSize = 15; info.TextXAlignment = Enum.TextXAlignment.Left; info.TextYAlignment = Enum.TextYAlignment.Top
+info.Text = "Searching for signals..."
 
--- [ DATA REFRESH LOGIC ]
+-- [ REFRESH LOGIC ]
 task.spawn(function()
     while task.wait(0.5) do
+        -- Safety check for the PlayerDataFunc remote
         local success, battleData = pcall(function()
             return Player.Remotes.PlayerDataFunc:InvokeServer("GetBattleData")
         end)
         
-        if success and battleData and battleData.Opponent then
-            local enemy = battleData.Opponent
+        if success and battleData and (battleData.Opponent or battleData.Opponent1) then
+            -- Handle potential name changes in battle table (Opponent vs Opponent1)
+            local enemy = battleData.Opponent or battleData.Opponent1
             
-            -- Dynamic Star coloring
-            local starRating = enemy.Star or 0
-            if starRating >= 6 then main.BorderColor3 = Color3.fromRGB(255, 0, 0) -- Red for 6*
-            elseif starRating >= 5 then main.BorderColor3 = Color3.fromRGB(255, 215, 0) -- Gold for 5*
-            else main.BorderColor3 = Color3.fromRGB(0, 180, 255) end -- Blue for normal
+            -- Pull data using the new 2025 paths
+            local name = enemy.Nickname or enemy.Name or "Unknown"
+            local star = enemy.Star or (enemy.Stats and enemy.Stats.Star) or 0
+            local trait = enemy.Trait or (enemy.Data and enemy.Data.Trait) or "Common"
+            local skin = enemy.Skin or (enemy.Visuals and enemy.Visuals.Skin) or "Default"
+            local item = enemy.HeldItem or "None"
+            local misprint = (enemy.Shiny or enemy.Misprint) and "YES ✨" or "No"
+
+            -- Update Border based on Rarity (Dynamic Color)
+            if star >= 6 then stroke.Color = Color3.fromRGB(255, 50, 50) -- Red
+            elseif star >= 5 then stroke.Color = Color3.fromRGB(255, 215, 0) -- Gold
+            elseif misprint == "YES ✨" then stroke.Color = Color3.fromRGB(200, 100, 255) -- Purple
+            else stroke.Color = Color3.fromRGB(0, 200, 255) end -- Blue
 
             info.Text = string.format(
-                "Name: %s\nStars: %s ⭐\nTrait: %s\nSkin: %s\nHeld Item: %s\nMisprint: %s",
-                tostring(enemy.Name or "???"),
-                tostring(starRating),
-                tostring(enemy.Trait or "None"),
-                tostring(enemy.Skin or "Default"),
-                tostring(enemy.HeldItem or "None"),
-                enemy.Shiny and "YES ✨" or "No"
+                "Name: %s\nStars: %s ⭐\nTrait: %s\nSkin: %s\nItem: %s\nMisprint: %s",
+                tostring(name), tostring(star), tostring(trait), 
+                tostring(skin), tostring(item), tostring(misprint)
             )
         else
-            info.Text = "❌ NO ACTIVE BATTLE\n\nWalk into grass to\nsee opponent stats."
-            main.BorderColor3 = Color3.fromRGB(100, 100, 100)
+            info.Text = "❌ NO BATTLE DETECTED\n\nStanding by for encounter..."
+            stroke.Color = Color3.fromRGB(80, 80, 80)
         end
     end
 end)
