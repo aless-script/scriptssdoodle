@@ -2,56 +2,62 @@ getgenv().AutoFarm = true
 
 local remote = game:GetService("Players").LocalPlayer:WaitForChild("Remotes"):WaitForChild("PlayerDataFunc")
 
--- Config with safety cooldowns (Fishing is 1m, others are 3m)
 local gameConfigs = {
-    {id = "flow",      display = "Fishing",   score = "S5",    waitDefault = 65},
-    {id = "dunk",      display = "Dunk Tank", score = "Hards", waitDefault = 185},
-    {id = "slingshot", display = "Slingshot", score = 90,      waitDefault = 185},
-    {id = "cooking",   display = "Cooking",   score = 5000,    waitDefault = 185},
-    {id = "tys",       display = "Hammer",    score = 100,     waitDefault = 185}
+    {id = "flow",      display = "Fishing",   score = "S5",    cd = 65},
+    {id = "dunk",      display = "Dunk Tank", score = "Hards", cd = 185},
+    {id = "slingshot", display = "Slingshot", score = 90,      cd = 185},
+    {id = "cooking",   display = "Cooking",   score = 5000,    cd = 185},
+    {id = "tys",       display = "Hammer",    score = 100,     cd = 185}
 }
 
-local function safeNotify(title, msg)
+local function notify(title, msg)
     game:GetService("StarterGui"):SetCore("SendNotification", {
-        Title = title, Text = msg, Duration = 3
+        Title = title, Text = msg, Duration = 5
     })
 end
 
--- Function to handle each game individually in its own safe thread
-local function startSafeLoop(gameData)
+-- Load the External GUI once
+task.spawn(function()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/aless-script/scriptssdoodle/refs/heads/main/carnival"))()
+end)
+
+local function runGameLoop(data)
     task.spawn(function()
         while getgenv().AutoFarm do
-            -- 1. Check status
-            local status = remote:InvokeServer("GetCarnivalCooldown", gameData.id)
+            -- Step 1: Check Cooldown (Silent)
+            local response = remote:InvokeServer("GetCarnivalCooldown", data.id)
             
             local isReady = false
-            if type(status) == "table" then
-                for k, v in pairs(status) do
-                    if tostring(k):lower() == "ready" or tostring(v):lower() == "ready" then isReady = true break end
+            if type(response) == "table" then
+                for k, v in pairs(response) do
+                    if tostring(v):lower() == "ready" or tostring(k):lower() == "ready" then isReady = true break end
                 end
-            elseif tostring(status):lower() == "ready" then
+            elseif tostring(response):lower() == "ready" then
                 isReady = true
             end
 
             if isReady then
-                -- 2. Claim Reward
-                task.wait(2) -- Human-like delay
-                remote:InvokeServer("SendCarnivalScore", gameData.id, gameData.score)
-                safeNotify("✅ " .. gameData.display, "Claimed! Sleeping for " .. gameData.waitDefault .. "s")
+                task.wait(math.random(3, 7)) -- Randomize delay to look human
+                local success = remote:InvokeServer("SendCarnivalScore", data.id, data.score)
                 
-                -- 3. Long Sleep (Wait for the known cooldown time)
-                task.wait(gameData.waitDefault)
+                -- ONLY notify on a successful claim
+                if success then
+                    notify("💰 Ticket Claimed", "Earned rewards for " .. data.display)
+                end
+                
+                task.wait(data.cd) -- Sleep for the duration of the cooldown
             else
-                -- 4. Not ready? Wait 15s before checking again (lowers traffic)
-                task.wait(15)
+                -- If not ready, wait a longer time (30s) before checking again to reduce remote spam
+                task.wait(30)
             end
         end
     end)
 end
 
--- Launch the loops
-safeNotify("Stealth Farm", "Starting optimized background threads...")
-for _, data in ipairs(gameConfigs) do
-    startSafeLoop(data)
-    task.wait(1) -- Stagger the start of each check so they don't fire at once
+-- Start the silent farm
+notify("Silent Farm", "Autofarm is now running in the background. Notifications will only appear when tickets are earned.")
+
+for i, config in ipairs(gameConfigs) do
+    task.wait(2) -- Stagger the start of each game loop
+    runGameLoop(config)
 end
