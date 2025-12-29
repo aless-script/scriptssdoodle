@@ -1,0 +1,71 @@
+getgenv().AutoFarm = true -- Set to false to stop
+
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
+local player = game:GetService("Players").LocalPlayer
+local remote = player:WaitForChild("Remotes"):WaitForChild("PlayerDataFunc")
+
+local function notify(title, msg)
+    game:GetService("StarterGui"):SetCore("SendNotification", {
+        Title = title, Text = msg, Duration = 5
+    })
+end
+
+local gameConfigs = {
+    {id = "flow",      display = "Fishing",   score = "S5"},
+    {id = "dunk",      display = "Dunk Tank", score = "Hards"},
+    {id = "slingshot", display = "Slingshot", score = 90},
+    {id = "cooking",   display = "Cooking",   score = 5000},
+    {id = "tys",       display = "Hammer",    score = 100}
+}
+
+-- Function to find a new server and hop
+local function serverHop()
+    notify("Server Hopping", "All games on cooldown. Finding new server...")
+    task.wait(2)
+    local servers = HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"))
+    for _, server in pairs(servers.data) do
+        if server.playing < server.maxPlayers and server.id ~= game.JobId then
+            TeleportService:TeleportToPlaceInstance(game.PlaceId, server.id)
+            break
+        end
+    end
+end
+
+task.spawn(function()
+    while getgenv().AutoFarm do
+        local anyReady = false
+        local allChecked = 0
+        
+        for _, gameData in ipairs(gameConfigs) do
+            local response = remote:InvokeServer("GetCarnivalCooldown", gameData.id)
+            
+            -- Check if "ready" is in the table or string
+            local isReady = false
+            if type(response) == "table" then
+                for k, v in pairs(response) do
+                    if tostring(k):lower() == "ready" or tostring(v):lower() == "ready" then isReady = true break end
+                end
+            elseif tostring(response):lower() == "ready" then
+                isReady = true
+            end
+
+            if isReady then
+                anyReady = true
+                task.wait(1)
+                remote:InvokeServer("SendCarnivalScore", gameData.id, gameData.score)
+                notify("Claimed", gameData.display)
+            else
+                allChecked = allChecked + 1
+            end
+        end
+
+        -- If no games are ready, hop to a fresh server
+        if not anyReady and allChecked == #gameConfigs then
+            serverHop()
+            break -- Stop the loop so it can teleport
+        end
+
+        task.wait(10) -- Check again in 10s if we haven't hopped yet
+    end
+end)
