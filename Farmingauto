@@ -1,68 +1,121 @@
--- [[ UPDATED DOODLE INSPECTOR - 2025 ]]
+-- [[ AIDEZ AUTO-FARM WITH HUD ]]
+if not game:IsLoaded() then game.Loaded:Wait() end
 local Player = game:GetService("Players").LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
+local Packer = Player:WaitForChild("Packer")
+local Client = require(Packer:WaitForChild("Client"))
 
--- Cleanup
-if PlayerGui:FindFirstChild("DoodleSpy2025") then PlayerGui.DoodleSpy2025:Destroy() end
+-- Hooking Modules
+local ClientDuel = Client.Duel
+local ClientRunner = Client.Runner
 
--- [ UI CONSTRUCTION ]
-local sg = Instance.new("ScreenGui", PlayerGui); sg.Name = "DoodleSpy2025"
+-- [ SETTINGS ]
+getgenv().AutoFarm = false
+local TargetStars = 5
+
+-- [[ BIG NOTICABLE GUI ]]
+if PlayerGui:FindFirstChild("AidezHUD") then PlayerGui.AidezHUD:Destroy() end
+
+local sg = Instance.new("ScreenGui", PlayerGui); sg.Name = "AidezHUD"
 local main = Instance.new("Frame", sg)
-main.Size = UDim2.new(0, 300, 0, 240)
-main.Position = UDim2.new(0, 15, 0.5, -120)
-main.BackgroundColor3 = Color3.fromRGB(18, 18, 28)
-main.BorderSizePixel = 2
-main.BorderColor3 = Color3.fromRGB(0, 200, 255)
-main.Draggable = true
+main.Size = UDim2.new(0, 350, 0, 250)
+main.Position = UDim2.new(0.5, -175, 0.5, -125)
+main.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+main.BorderSizePixel = 0
 main.Active = true
+main.Draggable = true
 
-local corner = Instance.new("UICorner", main); corner.CornerRadius = UDim.new(0, 8)
-local stroke = Instance.new("UIStroke", main); stroke.Thickness = 3; stroke.Color = main.BorderColor3
+-- Styling
+local corner = Instance.new("UICorner", main); corner.CornerRadius = UDim.new(0, 10)
+local stroke = Instance.new("UIStroke", main); stroke.Thickness = 4; stroke.Color = Color3.fromRGB(255, 0, 0)
 
 local title = Instance.new("TextLabel", main)
-title.Size = UDim2.new(1, 0, 0, 40); title.BackgroundColor3 = Color3.fromRGB(35, 35, 55)
-title.Text = "🔍 DOODLE SPY v2.5"; title.TextColor3 = Color3.new(1,1,1); title.Font = Enum.Font.GothamBold
+title.Size = UDim2.new(1, 0, 0, 50)
+title.Text = "AIDEZ AUTO-FARM"
+title.TextColor3 = Color3.new(1, 1, 1)
+title.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
+title.TextSize = 22
+title.Font = Enum.Font.GothamBold
+Instance.new("UICorner", title).CornerRadius = UDim.new(0, 10)
 
-local info = Instance.new("TextLabel", main)
-info.Size = UDim2.new(0.9, 0, 0.75, 0); info.Position = UDim2.new(0.05, 0, 0.2, 0)
-info.BackgroundTransparency = 1; info.TextColor3 = Color3.new(0.9, 0.9, 0.9)
-info.TextSize = 15; info.TextXAlignment = Enum.TextXAlignment.Left; info.TextYAlignment = Enum.TextYAlignment.Top
-info.Text = "Searching for signals..."
+local statusLabel = Instance.new("TextLabel", main)
+statusLabel.Size = UDim2.new(0.9, 0, 0, 80)
+statusLabel.Position = UDim2.new(0.05, 0, 0.25, 0)
+statusLabel.Text = "STATUS: OFF"
+statusLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
+statusLabel.TextSize = 24
+statusLabel.Font = Enum.Font.GothamBold
+statusLabel.BackgroundTransparency = 1
 
--- [ REFRESH LOGIC ]
+local toggleBtn = Instance.new("TextButton", main)
+toggleBtn.Size = UDim2.new(0.8, 0, 0, 60)
+toggleBtn.Position = UDim2.new(0.1, 0, 0.65, 0)
+toggleBtn.Text = "START BOT"
+toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0)
+toggleBtn.TextColor3 = Color3.new(1, 1, 1)
+toggleBtn.TextSize = 22
+toggleBtn.Font = Enum.Font.GothamBold
+Instance.new("UICorner", toggleBtn)
+
+-- [[ TOGGLE LOGIC ]]
+toggleBtn.MouseButton1Click:Connect(function()
+    getgenv().AutoFarm = not getgenv().AutoFarm
+    
+    if getgenv().AutoFarm then
+        toggleBtn.Text = "STOP BOT"
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+        statusLabel.Text = "STATUS: RUNNING..."
+        statusLabel.TextColor3 = Color3.fromRGB(0, 255, 150)
+        stroke.Color = Color3.fromRGB(0, 255, 150)
+    else
+        toggleBtn.Text = "START BOT"
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0)
+        statusLabel.Text = "STATUS: OFF"
+        statusLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
+        stroke.Color = Color3.fromRGB(255, 50, 50)
+    end
+end)
+
+-- [[ CORE FARMING LOOP ]]
 task.spawn(function()
-    while task.wait(0.5) do
-        -- Safety check for the PlayerDataFunc remote
-        local success, battleData = pcall(function()
-            return Player.Remotes.PlayerDataFunc:InvokeServer("GetBattleData")
-        end)
-        
-        if success and battleData and (battleData.Opponent or battleData.Opponent1) then
-            -- Handle potential name changes in battle table (Opponent vs Opponent1)
-            local enemy = battleData.Opponent or battleData.Opponent1
+    while true do
+        task.wait(1.5)
+        if getgenv().AutoFarm then
+            local isBattling = ClientDuel.Active or (Player.Remotes.PlayerDataFunc:InvokeServer("GetBattleData") ~= nil)
             
-            -- Pull data using the new 2025 paths
-            local name = enemy.Nickname or enemy.Name or "Unknown"
-            local star = enemy.Star or (enemy.Stats and enemy.Stats.Star) or 0
-            local trait = enemy.Trait or (enemy.Data and enemy.Data.Trait) or "Common"
-            local skin = enemy.Skin or (enemy.Visuals and enemy.Visuals.Skin) or "Default"
-            local item = enemy.HeldItem or "None"
-            local misprint = (enemy.Shiny or enemy.Misprint) and "YES ✨" or "No"
-
-            -- Update Border based on Rarity (Dynamic Color)
-            if star >= 6 then stroke.Color = Color3.fromRGB(255, 50, 50) -- Red
-            elseif star >= 5 then stroke.Color = Color3.fromRGB(255, 215, 0) -- Gold
-            elseif misprint == "YES ✨" then stroke.Color = Color3.fromRGB(200, 100, 255) -- Purple
-            else stroke.Color = Color3.fromRGB(0, 200, 255) end -- Blue
-
-            info.Text = string.format(
-                "Name: %s\nStars: %s ⭐\nTrait: %s\nSkin: %s\nItem: %s\nMisprint: %s",
-                tostring(name), tostring(star), tostring(trait), 
-                tostring(skin), tostring(item), tostring(misprint)
-            )
-        else
-            info.Text = "❌ NO BATTLE DETECTED\n\nStanding by for encounter..."
-            stroke.Color = Color3.fromRGB(80, 80, 80)
+            if not isBattling then
+                statusLabel.Text = "SEARCHING..."
+                local currentArea = Client.DataManager.RegionData.ChunkName
+                Player.Remotes.DudeWhyld:FireServer(currentArea, "WildGrass")
+            else
+                local battleData = Player.Remotes.PlayerDataFunc:InvokeServer("GetBattleData")
+                if battleData and battleData.Opponent then
+                    local enemy = battleData.Opponent
+                    local stars = enemy.Star or 0
+                    local isShiny = enemy.Shiny or false
+                    
+                    statusLabel.Text = string.format("VS: %s\n(%s STARS)", enemy.Name:upper(), tostring(stars))
+                    
+                    if stars >= TargetStars or isShiny then
+                        -- SUCCESS STATE
+                        getgenv().AutoFarm = false
+                        toggleBtn.Text = "TARGET FOUND!"
+                        toggleBtn.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
+                        statusLabel.Text = "🚨 FOUND RARE! 🚨"
+                        statusLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
+                        stroke.Color = Color3.fromRGB(255, 255, 0)
+                        
+                        -- Sound Notification
+                        local s = Instance.new("Sound", game.Workspace)
+                        s.SoundId = "rbxassetid://138090596"; s:Play()
+                    else
+                        -- TRASH DOODLE: RUN
+                        statusLabel.Text = "RUNNING..."
+                        game:GetService("ReplicatedStorage").Remotes.BattleRemote:FireServer("Run")
+                        repeat task.wait(0.5) until not ClientDuel.Active
+                    end
+                end
+            end
         end
     end
 end)
