@@ -1,121 +1,79 @@
--- [[ AIDEZ AUTO-FARM WITH HUD ]]
-if not game:IsLoaded() then game.Loaded:Wait() end
+-- [[ SENTINEL: TARGETED CHAIN-KILLER ]]
 local Player = game:GetService("Players").LocalPlayer
-local PlayerGui = Player:WaitForChild("PlayerGui")
-local Packer = Player:WaitForChild("Packer")
-local Client = require(Packer:WaitForChild("Client"))
+local Remotes = Player:WaitForChild("Remotes")
 
--- Hooking Modules
-local ClientDuel = Client.Duel
-local ClientRunner = Client.Runner
+-- CONFIGURATION (Change these to your liking)
+getgenv().AutoFarm = true
+getgenv().CHAIN_TARGET = "Grimsugar" -- THE DOODLE YOU WANT TO KILL
+local MIN_STARS = 5                 -- Stop for 5+ stars
+local ATTACK_MOVE = "Wave Shot"     -- Your lead Doodle's first-slot move
+local AREA_ID = "025_Sweetsville"   -- Christmas 2025 Area ID
 
--- [ SETTINGS ]
-getgenv().AutoFarm = false
-local TargetStars = 5
+-- DATA STORAGE
+local MyLeadID = ""
 
--- [[ BIG NOTICABLE GUI ]]
-if PlayerGui:FindFirstChild("AidezHUD") then PlayerGui.AidezHUD:Destroy() end
-
-local sg = Instance.new("ScreenGui", PlayerGui); sg.Name = "AidezHUD"
-local main = Instance.new("Frame", sg)
-main.Size = UDim2.new(0, 350, 0, 250)
-main.Position = UDim2.new(0.5, -175, 0.5, -125)
-main.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
-main.BorderSizePixel = 0
-main.Active = true
-main.Draggable = true
-
--- Styling
-local corner = Instance.new("UICorner", main); corner.CornerRadius = UDim.new(0, 10)
-local stroke = Instance.new("UIStroke", main); stroke.Thickness = 4; stroke.Color = Color3.fromRGB(255, 0, 0)
-
-local title = Instance.new("TextLabel", main)
-title.Size = UDim2.new(1, 0, 0, 50)
-title.Text = "AIDEZ AUTO-FARM"
-title.TextColor3 = Color3.new(1, 1, 1)
-title.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
-title.TextSize = 22
-title.Font = Enum.Font.GothamBold
-Instance.new("UICorner", title).CornerRadius = UDim.new(0, 10)
-
-local statusLabel = Instance.new("TextLabel", main)
-statusLabel.Size = UDim2.new(0.9, 0, 0, 80)
-statusLabel.Position = UDim2.new(0.05, 0, 0.25, 0)
-statusLabel.Text = "STATUS: OFF"
-statusLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
-statusLabel.TextSize = 24
-statusLabel.Font = Enum.Font.GothamBold
-statusLabel.BackgroundTransparency = 1
-
-local toggleBtn = Instance.new("TextButton", main)
-toggleBtn.Size = UDim2.new(0.8, 0, 0, 60)
-toggleBtn.Position = UDim2.new(0.1, 0, 0.65, 0)
-toggleBtn.Text = "START BOT"
-toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0)
-toggleBtn.TextColor3 = Color3.new(1, 1, 1)
-toggleBtn.TextSize = 22
-toggleBtn.Font = Enum.Font.GothamBold
-Instance.new("UICorner", toggleBtn)
-
--- [[ TOGGLE LOGIC ]]
-toggleBtn.MouseButton1Click:Connect(function()
-    getgenv().AutoFarm = not getgenv().AutoFarm
-    
-    if getgenv().AutoFarm then
-        toggleBtn.Text = "STOP BOT"
-        toggleBtn.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
-        statusLabel.Text = "STATUS: RUNNING..."
-        statusLabel.TextColor3 = Color3.fromRGB(0, 255, 150)
-        stroke.Color = Color3.fromRGB(0, 255, 150)
-    else
-        toggleBtn.Text = "START BOT"
-        toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0)
-        statusLabel.Text = "STATUS: OFF"
-        statusLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
-        stroke.Color = Color3.fromRGB(255, 50, 50)
+-- [ 1. SYNC YOUR LEAD DOODLE ]
+Remotes.UpdateLead.OnClientEvent:Connect(function(data)
+    if data and data.Doodle then
+        MyLeadID = data.Doodle.ID
+        print("🔄 Lead Synced: " .. data.Doodle.Name .. " (ID: " .. MyLeadID:sub(1,8) .. ")")
     end
 end)
 
--- [[ CORE FARMING LOOP ]]
-task.spawn(function()
-    while true do
-        task.wait(1.5)
-        if getgenv().AutoFarm then
-            local isBattling = ClientDuel.Active or (Player.Remotes.PlayerDataFunc:InvokeServer("GetBattleData") ~= nil)
+-- [ 2. THE BATTLE ENGINE ]
+local mtHook; mtHook = hookmetamethod(game, "__namecall", function(self, ...)
+    local method = getnamecallmethod()
+    local args = {...}
+
+    if self == Remotes.StartBattle and method == "FireServer" and getgenv().AutoFarm then
+        local data = args[1]
+        local wild = data.Player2Party[1]
+        
+        -- Logic Checks
+        local isTarget = (wild.RealName == getgenv().CHAIN_TARGET)
+        local isRare = (wild.Star >= MIN_STARS or wild.Shiny or wild.HiddenTrait)
+
+        print("📡 ENCOUNTER: " .. wild.RealName .. " | Target: " .. getgenv().CHAIN_TARGET)
+
+        task.spawn(function()
+            task.wait(2.8) -- Wait for Battle UI
             
-            if not isBattling then
-                statusLabel.Text = "SEARCHING..."
-                local currentArea = Client.DataManager.RegionData.ChunkName
-                Player.Remotes.DudeWhyld:FireServer(currentArea, "WildGrass")
+            if isTarget and not isRare then
+                -- ⚔️ KILL TARGET: Building the chain
+                print("⚔️ KO'ing " .. wild.RealName .. " to increase chain...")
+                Remotes.BattleAction:FireServer({
+                    {
+                        ["Target"] = wild.UUID,
+                        ["ActionType"] = "Attack",
+                        ["Action"] = ATTACK_MOVE,
+                        ["User"] = MyLeadID
+                    }
+                })
+            elseif isTarget and isRare then
+                -- 🚨 STOP: You found the rare version of your target!
+                getgenv().AutoFarm = false
+                print("🚨 !!! RARE TARGET FOUND: " .. wild.RealName .. " !!!")
+                print("⭐ Stars: " .. wild.Star .. " | ✨ Shiny: " .. tostring(wild.Shiny))
             else
-                local battleData = Player.Remotes.PlayerDataFunc:InvokeServer("GetBattleData")
-                if battleData and battleData.Opponent then
-                    local enemy = battleData.Opponent
-                    local stars = enemy.Star or 0
-                    local isShiny = enemy.Shiny or false
-                    
-                    statusLabel.Text = string.format("VS: %s\n(%s STARS)", enemy.Name:upper(), tostring(stars))
-                    
-                    if stars >= TargetStars or isShiny then
-                        -- SUCCESS STATE
-                        getgenv().AutoFarm = false
-                        toggleBtn.Text = "TARGET FOUND!"
-                        toggleBtn.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
-                        statusLabel.Text = "🚨 FOUND RARE! 🚨"
-                        statusLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
-                        stroke.Color = Color3.fromRGB(255, 255, 0)
-                        
-                        -- Sound Notification
-                        local s = Instance.new("Sound", game.Workspace)
-                        s.SoundId = "rbxassetid://138090596"; s:Play()
-                    else
-                        -- TRASH DOODLE: RUN
-                        statusLabel.Text = "RUNNING..."
-                        game:GetService("ReplicatedStorage").Remotes.BattleRemote:FireServer("Run")
-                        repeat task.wait(0.5) until not ClientDuel.Active
-                    end
-                end
+                -- 🏃 RUN: If it's not the target, flee immediately to save time
+                print("🏃 Not " .. getgenv().CHAIN_TARGET .. ". Fleeing...")
+                Remotes.BattleAction:FireServer("Run")
             end
+        end)
+    end
+    return mtHook(self, ...)
+end)
+
+-- [ 3. THE AUTO-ENCOUNTER LOOP ]
+task.spawn(function()
+    while task.wait(4) do
+        if getgenv().AutoFarm and not Player.PlayerGui:FindFirstChild("BattleGui") then
+            -- Handshake
+            Remotes.RequestChunk:InvokeServer(AREA_ID)
+            task.wait(0.2)
+            -- Trigger Encounter
+            Remotes.DudeWhyld:FireServer(AREA_ID, "WildGrass")
+            print("👣 Searching for " .. getgenv().CHAIN_TARGET .. "...")
         end
     end
 end)
