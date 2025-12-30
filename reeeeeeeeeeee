@@ -1,0 +1,119 @@
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+   Name = "Sentinel | Doodle World 2025",
+   LoadingTitle = "Loading Sweetsville executioner...",
+   LoadingSubtitle = "by Sentinel",
+   ConfigurationSaving = {
+      Enabled = true,
+      FolderName = "SentinelScripts",
+      FileName = "DoodleFarm"
+   }
+})
+
+-- [[ GLOBAL SETTINGS ]]
+getgenv().AutoFarm = false
+getgenv().TargetDoodle = "Grimsugar"
+getgenv().MinStars = 5
+getgenv().AttackMove = "Wave Shot"
+local AreaID = "025_Sweetsville"
+local MyLeadID = ""
+
+-- [[ TABS ]]
+local MainTab = Window:CreateTab("Auto Farm", 4483362458) -- Main Icon
+
+-- [[ UI ELEMENTS ]]
+MainTab:CreateToggle({
+   Name = "Enable Auto Farm",
+   CurrentValue = false,
+   Flag = "AutoFarmFlag",
+   Callback = function(Value)
+      getgenv().AutoFarm = Value
+      if Value then Rayfield:Notify({Title = "Sentinel", Content = "Bot Started!", Duration = 2}) end
+   end,
+})
+
+MainTab:CreateInput({
+   Name = "Target Doodle Name",
+   PlaceholderText = "e.g. Grimsugar",
+   RemoveTextAfterFocusLost = false,
+   Callback = function(Text)
+      getgenv().TargetDoodle = Text
+   end,
+})
+
+MainTab:CreateSlider({
+   Name = "Stop at Stars",
+   Info = "Bot will stop if it finds this star rating or higher.",
+   Min = 1,
+   Max = 6,
+   DefaultValue = 5,
+   Color = Color3.fromRGB(255, 215, 0),
+   Increment = 1,
+   ValueName = "Stars",
+   Flag = "StarSlider",
+   Callback = function(Value)
+      getgenv().MinStars = Value
+   end,
+})
+
+MainTab:CreateInput({
+   Name = "Attack Move Name",
+   PlaceholderText = "Wave Shot",
+   RemoveTextAfterFocusLost = false,
+   Callback = function(Text)
+      getgenv().AttackMove = Text
+   end,
+})
+
+-- [[ THE BACKGROUND BOT LOGIC ]]
+local Player = game:GetService("Players").LocalPlayer
+local Remotes = Player:WaitForChild("Remotes")
+
+-- Sync Lead ID
+Remotes.UpdateLead.OnClientEvent:Connect(function(data)
+    if data and data.Doodle then
+        MyLeadID = data.Doodle.ID
+    end
+end)
+
+-- Battle Interceptor
+local mtHook; mtHook = hookmetamethod(game, "__namecall", function(self, ...)
+    local method = getnamecallmethod()
+    local args = {...}
+
+    if self == Remotes.StartBattle and method == "FireServer" and getgenv().AutoFarm then
+        local wild = args[1].Player2Party[1]
+        local isTarget = (wild.RealName == getgenv().TargetDoodle)
+        local isRare = (wild.Star >= getgenv().MinStars or wild.Shiny or wild.HiddenTrait)
+
+        task.spawn(function()
+            task.wait(2.8)
+            if isRare then
+                getgenv().AutoFarm = false
+                Rayfield:Notify({Title = "RARE FOUND!", Content = wild.RealName .. " found with " .. wild.Star .. " stars!", Duration = 10})
+            elseif isTarget then
+                Remotes.BattleAction:FireServer({{
+                    ["Target"] = wild.UUID,
+                    ["ActionType"] = "Attack",
+                    ["Action"] = getgenv().AttackMove,
+                    ["User"] = MyLeadID
+                }})
+            else
+                Remotes.BattleAction:FireServer("Run")
+            end
+        end)
+    end
+    return mtHook(self, ...)
+end)
+
+-- Encounter Loop
+task.spawn(function()
+    while task.wait(4) do
+        if getgenv().AutoFarm and not Player.PlayerGui:FindFirstChild("BattleGui") then
+            Remotes.RequestChunk:InvokeServer(AreaID)
+            task.wait(0.2)
+            Remotes.DudeWhyld:FireServer(AreaID, "WildGrass")
+        end
+    end
+end)
