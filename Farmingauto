@@ -1,17 +1,23 @@
--- [[ AIDEZ-STYLE UI CONFIGURATION ]]
-local Settings = {
-    Enabled = false,
-    AutoHeal = true,
-    TargetDoodle = "None",
-    MinStars = 0,
-    CatchMisprint = true,
-    AutoCatch = true,
-    ChainMode = false,
-    Capsule = "Basic Capsule"
-}
+-- [[ DATA SCRAPING ]]
+local DoodleList = {"None"}
+for i, v in pairs(DoodleInfo) do
+    if v.Name then
+        table.insert(DoodleList, v.Name)
+    end
+end
+table.sort(DoodleList)
 
--- [[ UI LIBRARY LOAD ]]
--- (Using a standard Aidez-compatible Material library)
+local Inventory = Client.Network:get("PlayerData", "GetItems")
+local CapsuleList = {}
+if Inventory and Inventory.Capsules then
+    for name, _ in pairs(Inventory.Capsules) do
+        table.insert(CapsuleList, name)
+    end
+else
+    CapsuleList = {"Basic Capsule", "Polkadot Capsule", "Crystal Capsule"}
+end
+
+-- [[ UI CONFIGURATION ]]
 local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/Kinlei/MaterialLua/master/Module.lua"))()
 local Window = Library.Load({
     Title = "Aidez | Doodle World Autofarm",
@@ -24,19 +30,16 @@ local Window = Library.Load({
 local MainTab = Window.NewTab({Name = "Autofarm"})
 local ConfigTab = Window.NewTab({Name = "Config"})
 
--- [[ MAIN TAB ELEMENTS ]]
-
+-- [[ MAIN TAB ]]
 MainTab.Toggle({
     Text = "Master Autofarm",
-    Callback = function(v)
-        Settings.Enabled = v
-        if v then print("Autofarm Active") else print("Autofarm Paused") end
-    end
+    Callback = function(v) Settings.Enabled = v end
 })
 
+-- FIXED: Now uses the scraped DoodleList
 MainTab.Dropdown({
     Text = "Target Doodle",
-    Options = {"None", "Bun-Bun", "Fruitoad", "Glubbie", "Puffup"}, -- Populate with Areas/DoodleNames
+    Options = DoodleList,
     Callback = function(v)
         Settings.TargetDoodle = v
     end
@@ -44,16 +47,11 @@ MainTab.Dropdown({
 
 MainTab.Slider({
     Text = "Minimum Stars",
-    Min = 0,
-    Max = 6,
-    Default = 0,
-    Callback = function(v)
-        Settings.MinStars = v
-    end
+    Min = 0, Max = 6, Default = 0,
+    Callback = function(v) Settings.MinStars = v end
 })
 
--- [[ CONFIG TAB ELEMENTS ]]
-
+-- [[ CONFIG TAB ]]
 ConfigTab.Toggle({
     Text = "Auto Catch Misprints",
     Default = true,
@@ -67,38 +65,40 @@ ConfigTab.Toggle({
 })
 
 ConfigTab.Toggle({
-    Text = "Chain Mode (Kills Non-Targets)",
+    Text = "Chain Mode",
     Default = false,
     Callback = function(v) Settings.ChainMode = v end
 })
 
+-- FIXED: Now uses your actual inventory
 ConfigTab.Dropdown({
     Text = "Capture Item",
-    Options = {"Basic Capsule", "Polkadot Capsule", "Level Capsule", "Crystal Capsule"},
+    Options = CapsuleList,
     Callback = function(v) Settings.Capsule = v end
 })
 
--- [[ THE BRAIN (Aidez Logic Integration) ]]
+-- [[ THE BRAIN ]]
+-- (Ensure your snippets for CheckGrass, FindEncounters, GetEnemyDoodle are pasted above this line)
 
 task.spawn(function()
     while task.wait(0.5) do
         if not Settings.Enabled then continue end
-
+        
         local Battle = Client.Battle and Client.Battle.CurrentBattle
         
         if not Battle then
-            -- Healing Check
+            -- 1. Check HP
             if Settings.AutoHeal then
                 local Party = Client.Network:get("PlayerData", "GetParty")
                 for _, d in pairs(Party) do
-                    if d.currenthp < (d.hp * 0.4) then
+                    if d.currenthp and d.currenthp < (d.hp * 0.4) then
                         Client.Network:post("PlayerData", "Heal", "Lakewood")
                         task.wait(1) break
                     end
                 end
             end
 
-            -- Grass Detection & Teleport
+            -- 2. Find Location (Using your snippet logic)
             local GrassArea = CheckGrass()
             if Settings.TargetDoodle ~= "None" then
                 local TargetChunk, TargetGrass = FindEncounters(Settings.TargetDoodle)
@@ -110,12 +110,12 @@ task.spawn(function()
                 GrassArea = TargetGrass
             end
 
-            -- Start Battle
+            -- 3. Trigger Battle
             if GrassArea then
                 Client.Battle.WildBattIe(nil, nil, GrassArea)
             end
         else
-            -- Battle Management
+            -- 4. Battle Logic (Using your identification logic)
             local Enemy = GetEnemyDoodle()
             local Mine = GetOutDoodle()
             
@@ -123,14 +123,12 @@ task.spawn(function()
                 local ShouldCatch = (Enemy.Star >= Settings.MinStars) or (Settings.CatchMisprint and Enemy.Shiny)
                 
                 if ShouldCatch then
-                    -- Catch logic
                     Client.Network:post("BattleAction", {{
                         ["ActionType"] = "Item",
                         ["Action"] = Settings.Capsule,
                         ["User"] = Mine.ID
                     }})
                 elseif Settings.ChainMode then
-                    -- Attack logic
                     Client.Network:post("BattleAction", {{
                         ["Target"] = Enemy.ID,
                         ["ActionType"] = "Attack",
@@ -138,7 +136,6 @@ task.spawn(function()
                         ["User"] = Mine.ID
                     }})
                 else
-                    -- Run logic
                     Client.Network:post("BattleAction", {{
                         ["Target"] = "RunAway",
                         ["ActionType"] = "Run",
@@ -146,7 +143,7 @@ task.spawn(function()
                     }})
                 end
                 
-                -- Fast Turn Skip
+                -- Skip animations using the upvalue trick
                 local UpValues = getupvalues(Client.Network.BindEvent)
                 for _, v in pairs(UpValues) do
                     if typeof(v) == "table" and v.ForceEnd then v.ForceEnd() end
