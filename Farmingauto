@@ -1,141 +1,166 @@
+-- // Prevent AFK Kick
+for _, v in pairs(getconnections(game:GetService("Players").LocalPlayer.Idled)) do v:Disable() end
+
 local Players = game:GetService("Players")
 local Player = Players.LocalPlayer
 local Client = require(Player.Packer.Client)
 
--- // SETTINGS CONFIGURATION
-local Settings = {
+-- // GLOBAL STATE
+getgenv().Settings = {
     Enabled = false,
+    FastForward = true,
     RebattlerFarm = false,
     AutoHeal = true,
-    AutoCatch = false,
-    Chain = true,
-    FastForward = true,
-    Stars = 3,
-    Misprint = false,
-    Doodle = {Name = "None", Data = {}},
-    Skin = "Any",
-    Trait = "Any",
-    KeepFarming = false
+    MinStars = 3,
+    TargetDoodle = "", -- Empty means farm everything
+    Misprint = false
 }
 
--- // SIMPLE GUI (Replaces the broken library)
-local ScreenGui = Instance.new("ScreenGui", Player.PlayerGui)
-local MainFrame = Instance.new("Frame", ScreenGui)
-MainFrame.Size = UDim2.new(0, 200, 0, 150)
-MainFrame.Position = UDim2.new(0.05, 0, 0.4, 0)
-MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-
-local function CreateButton(text, pos, callback)
-    local btn = Instance.new("TextButton", MainFrame)
-    btn.Size = UDim2.new(0.9, 0, 0, 30)
-    btn.Position = pos
-    btn.Text = text
-    btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-    btn.TextColor3 = Color3.new(1, 1, 1)
-    btn.MouseButton1Click:Connect(callback)
-    return btn
-end
-
--- // UTILITY FUNCTIONS
-local function Heal()
-    local Party = Client.Network:get("PlayerData", "GetParty")
-    local NeedHeal = false
-    for _, v in pairs(Party) do
-        if v.currenthp and v.hp and v.currenthp < v.hp then
-            NeedHeal = true
-            break
+-- // CORE LOGIC: FAST FORWARD
+task.spawn(function()
+    repeat task.wait() until Client.Utilities ~= nil and Client.Utilities.Halt ~= nil
+    Client.Utilities.Halt = function(ToWait)
+        if getgenv().Settings.FastForward then
+            local isBattle = Player.PlayerGui:FindFirstChild("MainGui") and Player.PlayerGui.MainGui.MainBattle.Visible
+            if isBattle then
+                task.wait(getgenv().Settings.RebattlerFarm and 0.025 or 0)
+                return
+            end
+            if ToWait and ToWait >= 2 then task.wait(0.01) return end
         end
+        task.wait(ToWait or 0.03)
     end
-    if NeedHeal then
-        -- This calls the game's heal function (defined in your part 1/2)
-        Client.Network:get("Heal") 
-    end
-end
+    Client.Camera.Zoom = function() return end 
+end)
 
--- // FAST FORWARD HOOKS (From your Part 2)
-repeat task.wait() until Client.Utilities ~= nil and Client.Utilities.Halt ~= nil
-
-Client.Utilities.Halt = function(ToWait)
-    if Settings.FastForward and (Settings.Enabled or Settings.RebattlerFarm) then
-        if Player.PlayerGui:FindFirstChild("MainGui") and Player.PlayerGui.MainGui.MainBattle.Visible then
-            task.wait(Settings.RebattlerFarm and 0.025 or 0)
-            return
-        end
-        if ToWait and ToWait >= 2 then task.wait(0.01) return end
-    end
-    task.wait(ToWait or 0.03)
-end
-
--- // BATTLE LOGIC (Combined Wild and Trainer)
+-- // BATTLE HANDLER
 local function HandleBattle()
-    local MainGui = Player.PlayerGui:WaitForChild("MainGui")
-    local BattleGui = MainGui:WaitForChild("MainBattle")
-    local ActionBar = BattleGui:WaitForChild("BottomBar"):WaitForChild("Actions")
-
     while Client.Battle.CurrentBattle ~= nil do
-        if not (Settings.Enabled or Settings.RebattlerFarm) then break end
+        local MainGui = Player.PlayerGui:WaitForChild("MainGui")
+        local BattleGui = MainGui:WaitForChild("MainBattle")
         
-        -- Wait for turn
-        repeat task.wait() until ActionBar.Visible or MainGui.NPCTalk.Visible or Client.Battle.CurrentBattle == nil
+        repeat task.wait() until BattleGui.BottomBar.Actions.Visible or not Client.Battle.CurrentBattle
         if not Client.Battle.CurrentBattle then break end
 
-        local YourDoodle = GetOutDoodle() -- Ensure this function is defined in your environment
-        local EnemyDoodle = Client.Battle.CurrentBattle["Player2Party"][1]
+        local Enemy = Client.Battle.CurrentBattle["Player2Party"][1]
+        local MyDoodle = Client.Battle.CurrentBattle["Player1Party"][1]
 
-        -- Logic for Catching/Attacking
-        if Settings.Enabled and EnemyDoodle.Name == Settings.Doodle.Name then
-            -- [Insert the Match Filtering Logic here from your snippet]
-            -- For brevity, running default attack logic:
-            Client.Network:post("BattleAction", {
-                [1] = {
-                    ["ActionType"] = "Attack",
-                    ["Action"] = YourDoodle.Moves[1].Name,
-                    ["Target"] = EnemyDoodle.ID,
-                    ["User"] = YourDoodle.ID
-                }
-            })
-        else
-            -- Default: Run or Best Matchup Attack
-            local action = Settings.RebattlerFarm and "Attack" or "Run"
-            Client.Network:post("BattleAction", {
-                [1] = {
-                    ["ActionType"] = action,
-                    ["Target"] = action == "Run" and "RunAway" or EnemyDoodle.ID,
-                    ["User"] = YourDoodle.ID,
-                    ["Action"] = action == "Attack" and YourDoodle.Moves[1].Name or nil
-                }
-            })
+        -- Logic Check
+        local nameMatch = (getgenv().Settings.TargetDoodle == "" or string.lower(Enemy.Name) == string.lower(getgenv().Settings.TargetDoodle))
+        local starMatch = (Enemy.Star >= getgenv().Settings.MinStars)
+        local misprintMatch = (not getgenv().Settings.Misprint or Enemy.Shiny)
+
+        if nameMatch and starMatch and misprintMatch then
+            -- STOP FARMING OR CATCH
+            getgenv().Settings.Enabled = false
+            print("MATCH FOUND: " .. Enemy.Name .. " (" .. tostring(Enemy.Star) .. " Stars)")
+            return -- Stops the automation so you can manual catch or look at it
         end
+
+        -- Default Action: Run (Wild) or Attack (Rebattler)
+        local action = getgenv().Settings.RebattlerFarm and "Attack" or "Run"
+        Client.Network:post("BattleAction", {
+            [1] = {
+                ["ActionType"] = action,
+                ["Action"] = action == "Attack" and MyDoodle.Moves[1].Name or nil,
+                ["Target"] = action == "Attack" and Enemy.ID or "RunAway",
+                ["User"] = MyDoodle.ID
+            }
+        })
+        task.wait(0.5)
+    end
+end
+
+-- // BUILT-IN MODERN GUI
+local Gui = Instance.new("ScreenGui", Player.PlayerGui)
+local Main = Instance.new("Frame", Gui)
+Main.Size = UDim2.new(0, 240, 0, 360)
+Main.Position = UDim2.new(0.1, 0, 0.2, 0)
+Main.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+Main.Active = true
+Main.Draggable = true
+
+local Title = Instance.new("TextLabel", Main)
+Title.Size = UDim2.new(1, 0, 0, 35)
+Title.Text = "Doodle World: Aidez Reborn"
+Title.TextColor3 = Color3.new(1,1,1)
+Title.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+
+-- Search Box
+local SearchBox = Instance.new("TextBox", Main)
+SearchBox.Size = UDim2.new(0.9, 0, 0, 30)
+SearchBox.Position = UDim2.new(0.05, 0, 0, 45)
+SearchBox.PlaceholderText = "Type Doodle Name (Empty=All)"
+SearchBox.Text = ""
+SearchBox.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+SearchBox.TextColor3 = Color3.new(1, 1, 1)
+SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
+    getgenv().Settings.TargetDoodle = SearchBox.Text
+end)
+
+-- Star Control
+local StarLabel = Instance.new("TextLabel", Main)
+StarLabel.Size = UDim2.new(0.9, 0, 0, 20)
+StarLabel.Position = UDim2.new(0.05, 0, 0, 80)
+StarLabel.Text = "Min Stars: 3"
+StarLabel.BackgroundTransparency = 1
+StarLabel.TextColor3 = Color3.new(1,1,1)
+
+local StarPlus = Instance.new("TextButton", Main)
+StarPlus.Size = UDim2.new(0.4, 0, 0, 25)
+StarPlus.Position = UDim2.new(0.5, 5, 0, 100)
+StarPlus.Text = "+ Star"
+StarPlus.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+StarPlus.TextColor3 = Color3.new(1, 1, 1)
+StarPlus.MouseButton1Click:Connect(function()
+    getgenv().Settings.MinStars = math.min(6, getgenv().Settings.MinStars + 1)
+    StarLabel.Text = "Min Stars: " .. tostring(getgenv().Settings.MinStars)
+end)
+
+local StarMinus = Instance.new("TextButton", Main)
+StarMinus.Size = UDim2.new(0.4, 0, 0, 25)
+StarMinus.Position = UDim2.new(0.05, 0, 0, 100)
+StarMinus.Text = "- Star"
+StarMinus.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+StarMinus.TextColor3 = Color3.new(1, 1, 1)
+StarMinus.MouseButton1Click:Connect(function()
+    getgenv().Settings.MinStars = math.max(1, getgenv().Settings.MinStars - 1)
+    StarLabel.Text = "Min Stars: " .. tostring(getgenv().Settings.MinStars)
+end)
+
+local function CreateToggle(text, pos, settingKey)
+    local btn = Instance.new("TextButton", Main)
+    btn.Size = UDim2.new(0.9, 0, 0, 35)
+    btn.Position = UDim2.new(0.05, 0, 0, pos)
+    btn.Text = text .. ": OFF"
+    btn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    btn.TextColor3 = Color3.new(1, 1, 1)
+    
+    btn.MouseButton1Click:Connect(function()
+        getgenv().Settings[settingKey] = not getgenv().Settings[settingKey]
+        btn.Text = text .. ": " .. (getgenv().Settings[settingKey] and "ON" or "OFF")
+        btn.BackgroundColor3 = getgenv().Settings[settingKey] and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(45, 45, 45)
         
-        task.wait(0.1)
-        if EndTurn then EndTurn() end
-    end
-end
-
--- // MAIN LOOPS
-local function StartWildFarm()
-    while Settings.Enabled do
-        if Settings.AutoHeal then Heal() end
-        -- Replace 'Grass' with your specific grass part detection
-        local Grass = workspace:FindFirstChild("Grass", true) 
-        if Grass then
-            Client.Battle.WildBattIe(nil, nil, Grass)
-            HandleBattle()
+        if settingKey == "Enabled" and getgenv().Settings.Enabled then
+            task.spawn(function()
+                while getgenv().Settings.Enabled do
+                    if getgenv().Settings.AutoHeal then 
+                        local Party = Client.Network:get("PlayerData", "GetParty")
+                        for _, v in pairs(Party) do if v.currenthp < v.hp then Client.Network:get("Heal") break end end
+                    end
+                    local Grass = workspace:FindFirstChild("Grass", true) or workspace:FindFirstChild("GrassPart", true)
+                    if Grass then Client.Battle.WildBattIe(nil, nil, Grass) HandleBattle() end
+                    task.wait(1)
+                end
+                btn.Text = text .. ": OFF"
+                btn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+            end)
         end
-        task.wait(1)
-    end
+    end)
 end
 
--- // UI SETUP
-CreateButton("Toggle Wild Farm", UDim2.new(0.05, 0, 0.2, 0), function()
-    Settings.Enabled = not Settings.Enabled
-    if Settings.Enabled then task.spawn(StartWildFarm) end
-end)
-
-CreateButton("Toggle Rebattler", UDim2.new(0.05, 0, 0.5, 0), function()
-    Settings.RebattlerFarm = not Settings.RebattlerFarm
-    -- Rebattler Logic from your part 2 would be triggered here
-end)
-
--- // ANTI-IDLE
-for _, v in pairs(getconnections(Player.Idled)) do v:Disable() end
+CreateToggle("Auto-Farm Wild", 140, "Enabled")
+CreateToggle("Rebattler Farm", 185, "RebattlerFarm")
+CreateToggle("Fast Forward", 230, "FastForward")
+CreateToggle("Only Misprints", 275, "Misprint")
+CreateToggle("Auto-Heal", 320, "AutoHeal")
