@@ -1,0 +1,105 @@
+local player = game:GetService("Players").LocalPlayer
+local remotes = player:WaitForChild("Remotes")
+local StarterGui = game:GetService("StarterGui")
+
+-- Notification function
+local function notify(title, message, duration)
+    StarterGui:SetCore("SendNotification", {
+        Title = title,
+        Text = message,
+        Duration = duration or 5
+    })
+end
+
+-- Function to get current location from character position
+local function getCurrentLocation()
+    local character = player.Character
+    if not character then return "Character not loaded" end
+    
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    if not humanoidRootPart then return "HumanoidRootPart not found" end
+    
+    local position = humanoidRootPart.Position
+    return string.format("%.0f, %.0f, %.0f", position.X, position.Y, position.Z)
+end
+
+-- Function to track RequestChunk calls to see what zones load
+local function trackChunkRequests()
+    local requestChunk = remotes:WaitForChild("RequestChunk")
+    local originalInvoke = requestChunk.InvokeServer
+    
+    requestChunk.InvokeServer = function(self, ...)
+        local args = {...}
+        if #args >= 3 then
+            local zone = tostring(args[1])
+            local entrance = tostring(args[2])
+            local pos = getCurrentLocation()
+            
+            notify("📍 Location: " .. zone, "Entrance: " .. entrance .. "\nPos: " .. pos, 6)
+        end
+        return originalInvoke(self, ...)
+    end
+    
+    notify("✅ Tracker Active", "Location tracking enabled!", 4)
+end
+
+-- Function to track DudeWhyld calls (appears to be teleport/zone change)
+local function trackTeleports()
+    local dudeWhyld = remotes:WaitForChild("DudeWhyld")
+    local originalFire = dudeWhyld.FireServer
+    
+    dudeWhyld.FireServer = function(self, ...)
+        local args = {...}
+        if #args >= 2 then
+            local destination = tostring(args[1])
+            local exitPoint = tostring(args[2])
+            local pos = getCurrentLocation()
+            
+            notify("🚀 Teleporting", destination .. "\n" .. exitPoint .. "\nPos: " .. pos, 6)
+        end
+        return originalFire(self, ...)
+    end
+end
+
+-- Function to manually check current location by inspecting workspace
+local function manualLocationCheck()
+    local pos = getCurrentLocation()
+    
+    -- Check for loaded chunks/maps in workspace
+    local workspace = game:GetService("Workspace")
+    local zones = {}
+    
+    for _, obj in ipairs(workspace:GetChildren()) do
+        local name = obj.Name
+        -- Look for zone identifiers (###_ZoneName pattern)
+        if name:match("^%d%d%d_") then
+            table.insert(zones, name)
+        end
+    end
+    
+    if #zones > 0 then
+        local zoneList = table.concat(zones, "\n")
+        notify("🔍 Current Location", "Zones: " .. zoneList .. "\nPos: " .. pos, 7)
+    else
+        notify("🔍 Current Location", "No zones detected\nPos: " .. pos, 5)
+    end
+end
+
+-- Initialize trackers
+trackChunkRequests()
+trackTeleports()
+
+-- Initial location check
+manualLocationCheck()
+
+-- Print current location every 30 seconds
+task.spawn(function()
+    while true do
+        task.wait(30)
+        manualLocationCheck()
+    end
+end)
+
+-- Manual check command
+print("\n💡 TIP: Run manualLocationCheck() in console anytime to check your location!")
+_G.checkLocation = manualLocationCheck
