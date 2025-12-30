@@ -1,79 +1,70 @@
-warn("[Aidez Reborn] Vega X load start")
-
--- AFK
-pcall(function()
-    for _,v in pairs(getconnections(game.Players.LocalPlayer.Idled)) do
-        v:Disable()
-    end
-end)
+-- SETTINGS
+getgenv().AutoFarm = false
+getgenv().FastMode = false
 
 local Players = game:GetService("Players")
-local Player = Players.LocalPlayer
+local lp = Players.LocalPlayer
+local Remotes = lp:WaitForChild("Remotes")
+local EncounterRemote = Remotes:WaitForChild("DudeWhyld")
 
--- SAFE CLIENT LOAD
-local ok, Client = pcall(function()
-    return require(Player.Packer.Client)
-end)
-
-if not ok then
-    warn("[Aidez Reborn] Client failed")
-    return
-end
-
-warn("[Aidez Reborn] Client OK")
-
-getgenv().Settings = {
-    Enabled = false,
-    FastForward = true,
-    RebattlerFarm = false,
-    AutoHeal = true,
-    MinStars = 3,
-    TargetDoodle = "",
-    Misprint = false
+-- ALL AREAS
+local Areas = {
+    "Route_1","006_Route2","007_Lakewood","011_Sewer","010_Route3",
+    "013_Route4","014_GraphiteLodge","017_Crossroads","018_CrystalCaverns",
+    "020_GraphiteForest","022_ForestMaze","024_Route5","028_PirateCabin",
+    "025_Sweetsville","031_CandyFactory"
 }
 
--- FAST FORWARD
+-- GUI
+local sg = Instance.new("ScreenGui", lp.PlayerGui)
+sg.Name = "DoodleAuto"
+
+local toggleBtn = Instance.new("TextButton", sg)
+toggleBtn.Size = UDim2.new(0, 180, 0, 45)
+toggleBtn.Position = UDim2.new(0, 30, 0.5, -50)
+toggleBtn.Text = "AUTO FARM: OFF"
+toggleBtn.BackgroundColor3 = Color3.fromRGB(150,30,30)
+toggleBtn.TextColor3 = Color3.new(1,1,1)
+toggleBtn.Font = Enum.Font.GothamBold
+toggleBtn.TextSize = 16
+Instance.new("UICorner", toggleBtn)
+
+local modeBtn = Instance.new("TextButton", sg)
+modeBtn.Size = UDim2.new(0, 180, 0, 35)
+modeBtn.Position = UDim2.new(0, 30, 0.5, 5)
+modeBtn.Text = "MODE: SAFE"
+modeBtn.BackgroundColor3 = Color3.fromRGB(50,50,50)
+modeBtn.TextColor3 = Color3.new(1,1,1)
+modeBtn.Font = Enum.Font.GothamBold
+modeBtn.TextSize = 14
+Instance.new("UICorner", modeBtn)
+
+-- AUTO FARM LOOP
 task.spawn(function()
-    repeat task.wait() until Client.Utilities and Client.Utilities.Halt
-    Client.Utilities.Halt = function(t)
-        if getgenv().Settings.FastForward then
-            task.wait(0.01)
-            return
+    while true do
+        task.wait(getgenv().FastMode and 0.5 or 1)
+        if getgenv().AutoFarm then
+            for _, area in ipairs(Areas) do
+                if not getgenv().AutoFarm then break end
+                local success, err = pcall(function()
+                    EncounterRemote:FireServer(area, "WildGrass")
+                end)
+                if not success then warn("Failed to fire remote:", err) end
+                task.wait(getgenv().FastMode and 0.5 or 1)
+            end
         end
-        task.wait(t or 0.03)
     end
 end)
 
--- GUI (VEGA X SAFE)
-local Gui = Instance.new("ScreenGui")
-Gui.Name = "AidezReborn"
-Gui.ResetOnSpawn = false
+-- BUTTONS
+toggleBtn.MouseButton1Click:Connect(function()
+    getgenv().AutoFarm = not getgenv().AutoFarm
+    toggleBtn.Text = getgenv().AutoFarm and "AUTO FARM: ON" or "AUTO FARM: OFF"
+    toggleBtn.BackgroundColor3 = getgenv().AutoFarm and Color3.fromRGB(0,150,70) or Color3.fromRGB(150,30,30)
+end)
 
-local hui = gethui and gethui() or game:GetService("CoreGui")
-Gui.Parent = hui
-
-local Main = Instance.new("Frame", Gui)
-Main.Size = UDim2.fromOffset(350,500)
-Main.Position = UDim2.fromScale(0.3,0.2)
-Main.BackgroundColor3 = Color3.fromRGB(25,25,25)
-Main.Active = true
-Main.Draggable = true
-
-local Title = Instance.new("TextLabel", Main)
-Title.Size = UDim2.new(1,0,0,50)
-Title.Text = "Aidez Reborn (Vega X)"
-Title.TextSize = 20
-Title.Font = Enum.Font.GothamBold
-Title.TextColor3 = Color3.new(1,1,1)
-Title.BackgroundColor3 = Color3.fromRGB(40,40,40)
-
--- TOGGLE TEST (CONFIRM GUI WORKS)
-local Toggle = Instance.new("TextButton", Main)
-Toggle.Size = UDim2.new(0.9,0,0,50)
-Toggle.Position = UDim2.new(0.05,0,0,80)
-Toggle.Text = "GUI WORKING"
-Toggle.TextSize = 18
-Toggle.BackgroundColor3 = Color3.fromRGB(0,150,0)
-Toggle.TextColor3 = Color3.new(1,1,1)
-
-warn("[Aidez Reborn] GUI SHOWN")
+modeBtn.MouseButton1Click:Connect(function()
+    getgenv().FastMode = not getgenv().FastMode
+    modeBtn.Text = getgenv().FastMode and "MODE: FAST (0.5s)" or "MODE: SAFE (1s)"
+    modeBtn.BackgroundColor3 = getgenv().FastMode and Color3.fromRGB(200,100,0) or Color3.fromRGB(50,50,50)
+end)
