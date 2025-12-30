@@ -12,7 +12,7 @@ getgenv().Settings = {
     RebattlerFarm = false,
     AutoHeal = true,
     MinStars = 3,
-    TargetDoodle = "", -- Empty means farm everything
+    TargetDoodle = "", 
     Misprint = false
 }
 
@@ -45,19 +45,16 @@ local function HandleBattle()
         local Enemy = Client.Battle.CurrentBattle["Player2Party"][1]
         local MyDoodle = Client.Battle.CurrentBattle["Player1Party"][1]
 
-        -- Logic Check
         local nameMatch = (getgenv().Settings.TargetDoodle == "" or string.lower(Enemy.Name) == string.lower(getgenv().Settings.TargetDoodle))
         local starMatch = (Enemy.Star >= getgenv().Settings.MinStars)
         local misprintMatch = (not getgenv().Settings.Misprint or Enemy.Shiny)
 
         if nameMatch and starMatch and misprintMatch then
-            -- STOP FARMING OR CATCH
             getgenv().Settings.Enabled = false
             print("MATCH FOUND: " .. Enemy.Name .. " (" .. tostring(Enemy.Star) .. " Stars)")
-            return -- Stops the automation so you can manual catch or look at it
+            return 
         end
 
-        -- Default Action: Run (Wild) or Attack (Rebattler)
         local action = getgenv().Settings.RebattlerFarm and "Attack" or "Run"
         Client.Network:post("BattleAction", {
             [1] = {
@@ -71,68 +68,77 @@ local function HandleBattle()
     end
 end
 
--- // BUILT-IN MODERN GUI
+-- // BUILT-IN BIGGER MODERN GUI
 local Gui = Instance.new("ScreenGui", Player.PlayerGui)
 local Main = Instance.new("Frame", Gui)
-Main.Size = UDim2.new(0, 240, 0, 360)
-Main.Position = UDim2.new(0.1, 0, 0.2, 0)
-Main.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+Main.Size = UDim2.new(0, 350, 0, 500) -- Increased width and height
+Main.Position = UDim2.new(0.3, 0, 0.2, 0)
+Main.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+Main.BorderSizePixel = 2
 Main.Active = true
 Main.Draggable = true
 
 local Title = Instance.new("TextLabel", Main)
-Title.Size = UDim2.new(1, 0, 0, 35)
-Title.Text = "Doodle World: Aidez Reborn"
+Title.Size = UDim2.new(1, 0, 0, 50)
+Title.Text = "Aidez Reborn: Pro Edition"
+Title.TextSize = 20
+Title.Font = Enum.Font.GothamBold
 Title.TextColor3 = Color3.new(1,1,1)
-Title.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+Title.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 
 -- Search Box
 local SearchBox = Instance.new("TextBox", Main)
-SearchBox.Size = UDim2.new(0.9, 0, 0, 30)
-SearchBox.Position = UDim2.new(0.05, 0, 0, 45)
-SearchBox.PlaceholderText = "Type Doodle Name (Empty=All)"
+SearchBox.Size = UDim2.new(0.9, 0, 0, 45)
+SearchBox.Position = UDim2.new(0.05, 0, 0, 65)
+SearchBox.PlaceholderText = "Type Doodle Name..."
 SearchBox.Text = ""
-SearchBox.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+SearchBox.TextSize = 16
+SearchBox.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
 SearchBox.TextColor3 = Color3.new(1, 1, 1)
 SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
     getgenv().Settings.TargetDoodle = SearchBox.Text
 end)
 
--- Star Control
+-- Star Control Area
 local StarLabel = Instance.new("TextLabel", Main)
-StarLabel.Size = UDim2.new(0.9, 0, 0, 20)
-StarLabel.Position = UDim2.new(0.05, 0, 0, 80)
-StarLabel.Text = "Min Stars: 3"
+StarLabel.Size = UDim2.new(0.9, 0, 0, 30)
+StarLabel.Position = UDim2.new(0.05, 0, 0, 115)
+StarLabel.Text = "Minimum Stars: 3"
+StarLabel.TextSize = 18
 StarLabel.BackgroundTransparency = 1
 StarLabel.TextColor3 = Color3.new(1,1,1)
 
-local StarPlus = Instance.new("TextButton", Main)
-StarPlus.Size = UDim2.new(0.4, 0, 0, 25)
-StarPlus.Position = UDim2.new(0.5, 5, 0, 100)
-StarPlus.Text = "+ Star"
-StarPlus.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-StarPlus.TextColor3 = Color3.new(1, 1, 1)
-StarPlus.MouseButton1Click:Connect(function()
-    getgenv().Settings.MinStars = math.min(6, getgenv().Settings.MinStars + 1)
-    StarLabel.Text = "Min Stars: " .. tostring(getgenv().Settings.MinStars)
-end)
-
 local StarMinus = Instance.new("TextButton", Main)
-StarMinus.Size = UDim2.new(0.4, 0, 0, 25)
-StarMinus.Position = UDim2.new(0.05, 0, 0, 100)
+StarMinus.Size = UDim2.new(0.43, 0, 0, 40)
+StarMinus.Position = UDim2.new(0.05, 0, 0, 150)
 StarMinus.Text = "- Star"
-StarMinus.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+StarMinus.TextSize = 16
+StarMinus.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
 StarMinus.TextColor3 = Color3.new(1, 1, 1)
 StarMinus.MouseButton1Click:Connect(function()
     getgenv().Settings.MinStars = math.max(1, getgenv().Settings.MinStars - 1)
-    StarLabel.Text = "Min Stars: " .. tostring(getgenv().Settings.MinStars)
+    StarLabel.Text = "Minimum Stars: " .. tostring(getgenv().Settings.MinStars)
+end)
+
+local StarPlus = Instance.new("TextButton", Main)
+StarPlus.Size = UDim2.new(0.43, 0, 0, 40)
+StarPlus.Position = UDim2.new(0.52, 0, 0, 150)
+StarPlus.Text = "+ Star"
+StarPlus.TextSize = 16
+StarPlus.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
+StarPlus.TextColor3 = Color3.new(1, 1, 1)
+StarPlus.MouseButton1Click:Connect(function()
+    getgenv().Settings.MinStars = math.min(6, getgenv().Settings.MinStars + 1)
+    StarLabel.Text = "Minimum Stars: " .. tostring(getgenv().Settings.MinStars)
 end)
 
 local function CreateToggle(text, pos, settingKey)
     local btn = Instance.new("TextButton", Main)
-    btn.Size = UDim2.new(0.9, 0, 0, 35)
+    btn.Size = UDim2.new(0.9, 0, 0, 45) -- Larger buttons
     btn.Position = UDim2.new(0.05, 0, 0, pos)
     btn.Text = text .. ": OFF"
+    btn.TextSize = 16
+    btn.Font = Enum.Font.Gotham
     btn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
     btn.TextColor3 = Color3.new(1, 1, 1)
     
@@ -159,8 +165,9 @@ local function CreateToggle(text, pos, settingKey)
     end)
 end
 
-CreateToggle("Auto-Farm Wild", 140, "Enabled")
-CreateToggle("Rebattler Farm", 185, "RebattlerFarm")
-CreateToggle("Fast Forward", 230, "FastForward")
-CreateToggle("Only Misprints", 275, "Misprint")
-CreateToggle("Auto-Heal", 320, "AutoHeal")
+-- Adjusted Y positions for the larger buttons
+CreateToggle("Auto-Farm Wild", 210, "Enabled")
+CreateToggle("Rebattler Farm", 265, "RebattlerFarm")
+CreateToggle("Fast Forward", 320, "FastForward")
+CreateToggle("Only Misprints", 375, "Misprint")
+CreateToggle("Auto-Heal", 430, "AutoHeal")
