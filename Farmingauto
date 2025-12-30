@@ -1,79 +1,157 @@
--- [[ SENTINEL: TARGETED CHAIN-KILLER ]]
-local Player = game:GetService("Players").LocalPlayer
-local Remotes = Player:WaitForChild("Remotes")
+-- [[ AIDEZ-STYLE UI CONFIGURATION ]]
+local Settings = {
+    Enabled = false,
+    AutoHeal = true,
+    TargetDoodle = "None",
+    MinStars = 0,
+    CatchMisprint = true,
+    AutoCatch = true,
+    ChainMode = false,
+    Capsule = "Basic Capsule"
+}
 
--- CONFIGURATION (Change these to your liking)
-getgenv().AutoFarm = true
-getgenv().CHAIN_TARGET = "Grimsugar" -- THE DOODLE YOU WANT TO KILL
-local MIN_STARS = 5                 -- Stop for 5+ stars
-local ATTACK_MOVE = "Wave Shot"     -- Your lead Doodle's first-slot move
-local AREA_ID = "025_Sweetsville"   -- Christmas 2025 Area ID
+-- [[ UI LIBRARY LOAD ]]
+-- (Using a standard Aidez-compatible Material library)
+local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/Kinlei/MaterialLua/master/Module.lua"))()
+local Window = Library.Load({
+    Title = "Aidez | Doodle World Autofarm",
+    Style = 3,
+    SizeX = 400,
+    SizeY = 500,
+    Theme = "Dark"
+})
 
--- DATA STORAGE
-local MyLeadID = ""
+local MainTab = Window.NewTab({Name = "Autofarm"})
+local ConfigTab = Window.NewTab({Name = "Config"})
 
--- [ 1. SYNC YOUR LEAD DOODLE ]
-Remotes.UpdateLead.OnClientEvent:Connect(function(data)
-    if data and data.Doodle then
-        MyLeadID = data.Doodle.ID
-        print("🔄 Lead Synced: " .. data.Doodle.Name .. " (ID: " .. MyLeadID:sub(1,8) .. ")")
+-- [[ MAIN TAB ELEMENTS ]]
+
+MainTab.Toggle({
+    Text = "Master Autofarm",
+    Callback = function(v)
+        Settings.Enabled = v
+        if v then print("Autofarm Active") else print("Autofarm Paused") end
     end
-end)
+})
 
--- [ 2. THE BATTLE ENGINE ]
-local mtHook; mtHook = hookmetamethod(game, "__namecall", function(self, ...)
-    local method = getnamecallmethod()
-    local args = {...}
-
-    if self == Remotes.StartBattle and method == "FireServer" and getgenv().AutoFarm then
-        local data = args[1]
-        local wild = data.Player2Party[1]
-        
-        -- Logic Checks
-        local isTarget = (wild.RealName == getgenv().CHAIN_TARGET)
-        local isRare = (wild.Star >= MIN_STARS or wild.Shiny or wild.HiddenTrait)
-
-        print("📡 ENCOUNTER: " .. wild.RealName .. " | Target: " .. getgenv().CHAIN_TARGET)
-
-        task.spawn(function()
-            task.wait(2.8) -- Wait for Battle UI
-            
-            if isTarget and not isRare then
-                -- ⚔️ KILL TARGET: Building the chain
-                print("⚔️ KO'ing " .. wild.RealName .. " to increase chain...")
-                Remotes.BattleAction:FireServer({
-                    {
-                        ["Target"] = wild.UUID,
-                        ["ActionType"] = "Attack",
-                        ["Action"] = ATTACK_MOVE,
-                        ["User"] = MyLeadID
-                    }
-                })
-            elseif isTarget and isRare then
-                -- 🚨 STOP: You found the rare version of your target!
-                getgenv().AutoFarm = false
-                print("🚨 !!! RARE TARGET FOUND: " .. wild.RealName .. " !!!")
-                print("⭐ Stars: " .. wild.Star .. " | ✨ Shiny: " .. tostring(wild.Shiny))
-            else
-                -- 🏃 RUN: If it's not the target, flee immediately to save time
-                print("🏃 Not " .. getgenv().CHAIN_TARGET .. ". Fleeing...")
-                Remotes.BattleAction:FireServer("Run")
-            end
-        end)
+MainTab.Dropdown({
+    Text = "Target Doodle",
+    Options = {"None", "Bun-Bun", "Fruitoad", "Glubbie", "Puffup"}, -- Populate with Areas/DoodleNames
+    Callback = function(v)
+        Settings.TargetDoodle = v
     end
-    return mtHook(self, ...)
-end)
+})
 
--- [ 3. THE AUTO-ENCOUNTER LOOP ]
+MainTab.Slider({
+    Text = "Minimum Stars",
+    Min = 0,
+    Max = 6,
+    Default = 0,
+    Callback = function(v)
+        Settings.MinStars = v
+    end
+})
+
+-- [[ CONFIG TAB ELEMENTS ]]
+
+ConfigTab.Toggle({
+    Text = "Auto Catch Misprints",
+    Default = true,
+    Callback = function(v) Settings.CatchMisprint = v end
+})
+
+ConfigTab.Toggle({
+    Text = "Auto Heal (Lakewood)",
+    Default = true,
+    Callback = function(v) Settings.AutoHeal = v end
+})
+
+ConfigTab.Toggle({
+    Text = "Chain Mode (Kills Non-Targets)",
+    Default = false,
+    Callback = function(v) Settings.ChainMode = v end
+})
+
+ConfigTab.Dropdown({
+    Text = "Capture Item",
+    Options = {"Basic Capsule", "Polkadot Capsule", "Level Capsule", "Crystal Capsule"},
+    Callback = function(v) Settings.Capsule = v end
+})
+
+-- [[ THE BRAIN (Aidez Logic Integration) ]]
+
 task.spawn(function()
-    while task.wait(4) do
-        if getgenv().AutoFarm and not Player.PlayerGui:FindFirstChild("BattleGui") then
-            -- Handshake
-            Remotes.RequestChunk:InvokeServer(AREA_ID)
-            task.wait(0.2)
-            -- Trigger Encounter
-            Remotes.DudeWhyld:FireServer(AREA_ID, "WildGrass")
-            print("👣 Searching for " .. getgenv().CHAIN_TARGET .. "...")
+    while task.wait(0.5) do
+        if not Settings.Enabled then continue end
+
+        local Battle = Client.Battle and Client.Battle.CurrentBattle
+        
+        if not Battle then
+            -- Healing Check
+            if Settings.AutoHeal then
+                local Party = Client.Network:get("PlayerData", "GetParty")
+                for _, d in pairs(Party) do
+                    if d.currenthp < (d.hp * 0.4) then
+                        Client.Network:post("PlayerData", "Heal", "Lakewood")
+                        task.wait(1) break
+                    end
+                end
+            end
+
+            -- Grass Detection & Teleport
+            local GrassArea = CheckGrass()
+            if Settings.TargetDoodle ~= "None" then
+                local TargetChunk, TargetGrass = FindEncounters(Settings.TargetDoodle)
+                local CurrentChunk = Client.DataManager.RegionData.ChunkName or Client.DataManager.RegionData.Reference
+                if TargetChunk and CurrentChunk ~= TargetChunk then
+                    pcall(ChangeLocation, TargetChunk)
+                    task.wait(1.5)
+                end
+                GrassArea = TargetGrass
+            end
+
+            -- Start Battle
+            if GrassArea then
+                Client.Battle.WildBattIe(nil, nil, GrassArea)
+            end
+        else
+            -- Battle Management
+            local Enemy = GetEnemyDoodle()
+            local Mine = GetOutDoodle()
+            
+            if Enemy and Mine then
+                local ShouldCatch = (Enemy.Star >= Settings.MinStars) or (Settings.CatchMisprint and Enemy.Shiny)
+                
+                if ShouldCatch then
+                    -- Catch logic
+                    Client.Network:post("BattleAction", {{
+                        ["ActionType"] = "Item",
+                        ["Action"] = Settings.Capsule,
+                        ["User"] = Mine.ID
+                    }})
+                elseif Settings.ChainMode then
+                    -- Attack logic
+                    Client.Network:post("BattleAction", {{
+                        ["Target"] = Enemy.ID,
+                        ["ActionType"] = "Attack",
+                        ["Action"] = Mine.Moves[1].Name,
+                        ["User"] = Mine.ID
+                    }})
+                else
+                    -- Run logic
+                    Client.Network:post("BattleAction", {{
+                        ["Target"] = "RunAway",
+                        ["ActionType"] = "Run",
+                        ["User"] = Mine.ID
+                    }})
+                end
+                
+                -- Fast Turn Skip
+                local UpValues = getupvalues(Client.Network.BindEvent)
+                for _, v in pairs(UpValues) do
+                    if typeof(v) == "table" and v.ForceEnd then v.ForceEnd() end
+                end
+            end
         end
     end
 end)
