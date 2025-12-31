@@ -1,32 +1,54 @@
+-- // Anti-Idle
+for _, v in pairs(getconnections(game:GetService("Players").LocalPlayer.Idled)) do v:Disable() end
+
 local Player = game:GetService("Players").LocalPlayer
-local Client = require(Player.Packer.Client)
+local Client = nil
+
+-- // MODULE FINDER (Bypasses the "Packer" Error)
+for _, v in pairs(getgc(true)) do
+    if type(v) == "table" and v.Network and v.Battle and v.Utilities then
+        Client = v
+        break
+    end
+end
+
+-- Fallback if the first method fails
+if not Client then
+    local success, res = pcall(function() return require(Player:WaitForChild("Packer"):WaitForChild("Client")) end)
+    if success then Client = res end
+end
+
+if not Client then
+    warn("CRITICAL ERROR: Could not find Game Client. The game may have a major update.")
+    return
+end
 
 print("--- Scanner Active: Watching for Encounters ---")
 
--- Function to output stats safely to your console (F9) and a small label
+-- // Information Display Function
 local function displayStats(Enemy)
     local name = Enemy.Name or "Unknown"
     local stars = Enemy.Star or 0
     local trait = Enemy.Trait or "Unknown"
     local isMisprint = Enemy.Shiny and "YES" or "No"
     
-    -- Print to Console (F9) for a permanent record of the encounter
-    warn("--- NEW ENCOUNTER ---")
+    -- Output to F9 Console
+    warn("--- DOODLE DETECTED ---")
     print("Name: " .. name)
     print("Stars: " .. tostring(stars) .. " ⭐")
     print("Misprint: " .. isMisprint)
     print("Trait: " .. trait)
-    print("----------------------")
+    print("-----------------------")
 
-    -- Send a small notification in-game
+    -- In-Game Notification
     game.StarterGui:SetCore("SendNotification", {
-        Title = name .. " (" .. stars .. " Star)";
+        Title = name .. " (" .. stars .. "*)";
         Text = "Trait: " .. trait .. " | Misprint: " .. isMisprint;
-        Duration = 10;
+        Duration = 8;
     })
 end
 
--- Monitor the battle state
+-- // Detection Loop
 task.spawn(function()
     local lastEnemyUID = nil
     while task.wait(0.5) do
