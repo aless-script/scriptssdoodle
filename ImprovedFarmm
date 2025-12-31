@@ -1,0 +1,554 @@
+getgenv().AutoHunt = false
+getgenv().AutoChain = false
+
+local player = game:GetService("Players").LocalPlayer
+local remotes = player:WaitForChild("Remotes")
+local dudeWhyld = remotes:WaitForChild("DudeWhyld")
+local battleAction = remotes:WaitForChild("BattleAction")
+
+-- Hunting preferences
+local huntPreferences = {
+    minStars = 0,
+    shinyOnly = false,
+    specificSpecies = {},
+    specificSkin = nil,
+    minSize = 0,
+    maxSize = 999
+}
+
+-- Track current encounter
+local currentWildDoodle = nil
+local currentBattle = nil
+local encounterCount = 0
+local matchCount = 0
+local chainCount = 0
+
+-- Zone configs
+local currentZone = nil
+local zoneEncounters = {
+    ["025_Sweetsville"] = "WildGrass",
+    ["033_Academy"] = "WildGrass",
+    ["029_SubwayStation"] = "WildGrass",
+    ["TheCarnival"] = "WildGrass",
+}
+
+-- Create GUI
+local gui = Instance.new("ScreenGui")
+gui.Name = "AdvancedAutoHunt"
+gui.ResetOnSpawn = false
+
+local main = Instance.new("Frame")
+main.Size = UDim2.new(0, 500, 0, 630)
+main.Position = UDim2.new(0.5, -250, 0.5, -315)
+main.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+main.BorderSizePixel = 0
+main.Active = true
+main.Draggable = true
+main.Parent = gui
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 10)
+corner.Parent = main
+
+-- Title
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 40)
+title.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+title.Text = "🎯 Advanced Auto Hunt"
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 16
+title.Parent = main
+
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 10)
+titleCorner.Parent = title
+
+-- Close Button
+local close = Instance.new("TextButton")
+close.Size = UDim2.new(0, 30, 0, 30)
+close.Position = UDim2.new(1, -35, 0, 5)
+close.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+close.Text = "X"
+close.TextColor3 = Color3.fromRGB(255, 255, 255)
+close.Font = Enum.Font.GothamBold
+close.TextSize = 14
+close.BorderSizePixel = 0
+close.Parent = title
+
+local closeCorner = Instance.new("UICorner")
+closeCorner.CornerRadius = UDim.new(0, 6)
+closeCorner.Parent = close
+
+close.MouseButton1Click:Connect(function()
+    gui:Destroy()
+    getgenv().AutoHunt = false
+    getgenv().AutoChain = false
+end)
+
+-- Stats Display
+local statsFrame = Instance.new("Frame")
+statsFrame.Size = UDim2.new(1, -20, 0, 110)
+statsFrame.Position = UDim2.new(0, 10, 0, 50)
+statsFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+statsFrame.BorderSizePixel = 0
+statsFrame.Parent = main
+
+local statsCorner = Instance.new("UICorner")
+statsCorner.CornerRadius = UDim.new(0, 8)
+statsCorner.Parent = statsFrame
+
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Size = UDim2.new(1, -10, 0, 22)
+statusLabel.Position = UDim2.new(0, 5, 0, 5)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Text = "Status: ⏸️ Stopped"
+statusLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
+statusLabel.Font = Enum.Font.GothamBold
+statusLabel.TextSize = 13
+statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+statusLabel.Parent = statsFrame
+
+local zoneLabel = Instance.new("TextLabel")
+zoneLabel.Size = UDim2.new(1, -10, 0, 18)
+zoneLabel.Position = UDim2.new(0, 5, 0, 27)
+zoneLabel.BackgroundTransparency = 1
+zoneLabel.Text = "Zone: Detecting..."
+zoneLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
+zoneLabel.Font = Enum.Font.Gotham
+zoneLabel.TextSize = 11
+zoneLabel.TextXAlignment = Enum.TextXAlignment.Left
+zoneLabel.Parent = statsFrame
+
+local encountersLabel = Instance.new("TextLabel")
+encountersLabel.Size = UDim2.new(1, -10, 0, 18)
+encountersLabel.Position = UDim2.new(0, 5, 0, 45)
+encountersLabel.BackgroundTransparency = 1
+encountersLabel.Text = "Encounters: 0 | Matches: 0"
+encountersLabel.TextColor3 = Color3.fromRGB(150, 255, 150)
+encountersLabel.Font = Enum.Font.Gotham
+encountersLabel.TextSize = 11
+encountersLabel.TextXAlignment = Enum.TextXAlignment.Left
+encountersLabel.Parent = statsFrame
+
+local chainLabel = Instance.new("TextLabel")
+chainLabel.Size = UDim2.new(1, -10, 0, 18)
+chainLabel.Position = UDim2.new(0, 5, 0, 63)
+chainLabel.BackgroundTransparency = 1
+chainLabel.Text = "Chain: 0"
+chainLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
+chainLabel.Font = Enum.Font.Gotham
+chainLabel.TextSize = 11
+chainLabel.TextXAlignment = Enum.TextXAlignment.Left
+chainLabel.Parent = statsFrame
+
+local currentDoodleLabel = Instance.new("TextLabel")
+currentDoodleLabel.Size = UDim2.new(1, -10, 0, 18)
+currentDoodleLabel.Position = UDim2.new(0, 5, 0, 81)
+currentDoodleLabel.BackgroundTransparency = 1
+currentDoodleLabel.Text = "Current: Waiting..."
+currentDoodleLabel.TextColor3 = Color3.fromRGB(255, 255, 150)
+currentDoodleLabel.Font = Enum.Font.Gotham
+currentDoodleLabel.TextSize = 11
+currentDoodleLabel.TextXAlignment = Enum.TextXAlignment.Left
+currentDoodleLabel.Parent = statsFrame
+
+-- Preferences Section
+local prefsScroll = Instance.new("ScrollingFrame")
+prefsScroll.Size = UDim2.new(1, -20, 0, 280)
+prefsScroll.Position = UDim2.new(0, 10, 0, 170)
+prefsScroll.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+prefsScroll.BorderSizePixel = 0
+prefsScroll.ScrollBarThickness = 6
+prefsScroll.Parent = main
+
+local prefsCorner = Instance.new("UICorner")
+prefsCorner.CornerRadius = UDim.new(0, 8)
+prefsCorner.Parent = prefsScroll
+
+local prefsList = Instance.new("UIListLayout")
+prefsList.Padding = UDim.new(0, 8)
+prefsList.Parent = prefsScroll
+
+local prefsPadding = Instance.new("UIPadding")
+prefsPadding.PaddingTop = UDim.new(0, 10)
+prefsPadding.PaddingLeft = UDim.new(0, 10)
+prefsPadding.PaddingRight = UDim.new(0, 10)
+prefsPadding.Parent = prefsScroll
+
+-- Helper to create preference input
+local function createPrefInput(labelText, defaultValue, callback)
+    local container = Instance.new("Frame")
+    container.Size = UDim2.new(1, 0, 0, 35)
+    container.BackgroundColor3 = Color3.fromRGB(50, 50, 55)
+    container.BorderSizePixel = 0
+    container.Parent = prefsScroll
+    
+    local containerCorner = Instance.new("UICorner")
+    containerCorner.CornerRadius = UDim.new(0, 6)
+    containerCorner.Parent = container
+    
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0.5, -5, 1, 0)
+    label.Position = UDim2.new(0, 5, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = labelText
+    label.TextColor3 = Color3.fromRGB(220, 220, 220)
+    label.Font = Enum.Font.Gotham
+    label.TextSize = 11
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = container
+    
+    local input = Instance.new("TextBox")
+    input.Size = UDim2.new(0.5, -10, 0, 25)
+    input.Position = UDim2.new(0.5, 5, 0.5, -12.5)
+    input.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+    input.BorderSizePixel = 0
+    input.Text = tostring(defaultValue)
+    input.TextColor3 = Color3.fromRGB(255, 255, 255)
+    input.Font = Enum.Font.Gotham
+    input.TextSize = 11
+    input.Parent = container
+    
+    local inputCorner = Instance.new("UICorner")
+    inputCorner.CornerRadius = UDim.new(0, 4)
+    inputCorner.Parent = input
+    
+    input.FocusLost:Connect(function()
+        callback(input.Text)
+    end)
+    
+    return container
+end
+
+-- Create preference inputs
+createPrefInput("Min Stars", huntPreferences.minStars, function(val)
+    huntPreferences.minStars = tonumber(val) or 0
+end)
+
+createPrefInput("Min Size", huntPreferences.minSize, function(val)
+    huntPreferences.minSize = tonumber(val) or 0
+end)
+
+createPrefInput("Max Size", huntPreferences.maxSize, function(val)
+    huntPreferences.maxSize = tonumber(val) or 999
+end)
+
+createPrefInput("Species (comma separated)", "", function(val)
+    huntPreferences.specificSpecies = {}
+    if val ~= "" then
+        for species in val:gmatch("[^,]+") do
+            table.insert(huntPreferences.specificSpecies, species:match("^%s*(.-)%s*$"))
+        end
+    end
+end)
+
+createPrefInput("Skin ID (leave empty for any)", "", function(val)
+    huntPreferences.specificSkin = val ~= "" and tonumber(val) or nil
+end)
+
+-- Shiny Only Toggle
+local shinyToggle = Instance.new("TextButton")
+shinyToggle.Size = UDim2.new(1, 0, 0, 35)
+shinyToggle.BackgroundColor3 = Color3.fromRGB(50, 50, 55)
+shinyToggle.Text = "✨ Shiny Only: OFF"
+shinyToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+shinyToggle.Font = Enum.Font.GothamBold
+shinyToggle.TextSize = 12
+shinyToggle.BorderSizePixel = 0
+shinyToggle.Parent = prefsScroll
+
+local shinyCorner = Instance.new("UICorner")
+shinyCorner.CornerRadius = UDim.new(0, 6)
+shinyCorner.Parent = shinyToggle
+
+shinyToggle.MouseButton1Click:Connect(function()
+    huntPreferences.shinyOnly = not huntPreferences.shinyOnly
+    shinyToggle.Text = huntPreferences.shinyOnly and "✨ Shiny Only: ON" or "✨ Shiny Only: OFF"
+    shinyToggle.BackgroundColor3 = huntPreferences.shinyOnly and Color3.fromRGB(255, 215, 0) or Color3.fromRGB(50, 50, 55)
+end)
+
+task.wait()
+prefsScroll.CanvasSize = UDim2.new(0, 0, 0, prefsList.AbsoluteContentSize.Y + 20)
+
+-- Control Buttons
+local startBtn = Instance.new("TextButton")
+startBtn.Size = UDim2.new(0.48, 0, 0, 40)
+startBtn.Position = UDim2.new(0, 10, 1, -130)
+startBtn.BackgroundColor3 = Color3.fromRGB(50, 200, 100)
+startBtn.Text = "▶️ Start Hunt"
+startBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+startBtn.Font = Enum.Font.GothamBold
+startBtn.TextSize = 13
+startBtn.BorderSizePixel = 0
+startBtn.Parent = main
+
+local startCorner = Instance.new("UICorner")
+startCorner.CornerRadius = UDim.new(0, 6)
+startCorner.Parent = startBtn
+
+local chainBtn = Instance.new("TextButton")
+chainBtn.Size = UDim2.new(0.48, 0, 0, 40)
+chainBtn.Position = UDim2.new(0.52, 0, 1, -130)
+chainBtn.BackgroundColor3 = Color3.fromRGB(255, 150, 50)
+chainBtn.Text = "⛓️ Auto Chain: OFF"
+chainBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+chainBtn.Font = Enum.Font.GothamBold
+chainBtn.TextSize = 13
+chainBtn.BorderSizePixel = 0
+chainBtn.Parent = main
+
+local chainCorner = Instance.new("UICorner")
+chainCorner.CornerRadius = UDim.new(0, 6)
+chainCorner.Parent = chainBtn
+
+local resetBtn = Instance.new("TextButton")
+resetBtn.Size = UDim2.new(0.48, 0, 0, 35)
+resetBtn.Position = UDim2.new(0, 10, 1, -80)
+resetBtn.BackgroundColor3 = Color3.fromRGB(100, 100, 255)
+resetBtn.Text = "🔄 Reset Stats"
+resetBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+resetBtn.Font = Enum.Font.GothamBold
+resetBtn.TextSize = 12
+resetBtn.BorderSizePixel = 0
+resetBtn.Parent = main
+
+local resetCorner = Instance.new("UICorner")
+resetCorner.CornerRadius = UDim.new(0, 6)
+resetCorner.Parent = resetBtn
+
+local viewBtn = Instance.new("TextButton")
+viewBtn.Size = UDim2.new(0.48, 0, 0, 35)
+viewBtn.Position = UDim2.new(0.52, 0, 1, -80)
+viewBtn.BackgroundColor3 = Color3.fromRGB(150, 100, 255)
+viewBtn.Text = "👁️ View Stats"
+viewBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+viewBtn.Font = Enum.Font.GothamBold
+viewBtn.TextSize = 12
+viewBtn.BorderSizePixel = 0
+viewBtn.Parent = main
+
+local viewCorner = Instance.new("UICorner")
+viewCorner.CornerRadius = UDim.new(0, 6)
+viewCorner.Parent = viewBtn
+
+local infoLabel = Instance.new("TextLabel")
+infoLabel.Size = UDim2.new(1, -20, 0, 30)
+infoLabel.Position = UDim2.new(0, 10, 1, -40)
+infoLabel.BackgroundTransparency = 1
+infoLabel.Text = "Hunt stops when match found. Chain kills non-matches."
+infoLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+infoLabel.Font = Enum.Font.Gotham
+infoLabel.TextSize = 10
+infoLabel.TextWrapped = true
+infoLabel.Parent = main
+
+pcall(function()
+    if gethui then
+        gui.Parent = gethui()
+    else
+        gui.Parent = player.PlayerGui
+    end
+end)
+
+-- Functions
+local function getCurrentZone()
+    for _, obj in ipairs(game:GetService("Workspace"):GetChildren()) do
+        if obj.Name:match("^%d%d%d_") or zoneEncounters[obj.Name] then
+            return obj.Name
+        end
+    end
+    return nil
+end
+
+local function checkDoodleMatch(doodle)
+    if not doodle then return false end
+    
+    -- Check Stars
+    local stars = doodle.Star or doodle.star or 0
+    if stars < huntPreferences.minStars then return false end
+    
+    -- Check Shiny
+    if huntPreferences.shinyOnly and not doodle.Shiny then return false end
+    
+    -- Check Size
+    local size = doodle.Size or doodle.size or 1
+    if size < huntPreferences.minSize or size > huntPreferences.maxSize then return false end
+    
+    -- Check Species
+    if #huntPreferences.specificSpecies > 0 then
+        local species = doodle.Name or doodle.RealName or ""
+        local found = false
+        for _, targetSpecies in ipairs(huntPreferences.specificSpecies) do
+            if species:lower():find(targetSpecies:lower()) then
+                found = true
+                break
+            end
+        end
+        if not found then return false end
+    end
+    
+    -- Check Skin
+    if huntPreferences.specificSkin then
+        local skin = doodle.Skin or doodle.skin or 0
+        if skin ~= huntPreferences.specificSkin then return false end
+    end
+    
+    return true
+end
+
+local function killWildDoodle()
+    if not currentBattle or not currentWildDoodle then return end
+    
+    -- Get player's first doodle
+    if currentBattle.Player1Party and #currentBattle.Player1Party > 0 then
+        local playerDoodle = currentBattle.Player1Party[1]
+        local wildDoodleID = currentWildDoodle.ID
+        
+        -- Get first move
+        if playerDoodle.Moves and #playerDoodle.Moves > 0 then
+            local move = playerDoodle.Moves[1]
+            local moveName = move.Name or "Tackle"
+            
+            pcall(function()
+                battleAction:FireServer({{
+                    Target = wildDoodleID,
+                    ActionType = "Attack",
+                    Action = moveName,
+                    User = playerDoodle.ID
+                }})
+            end)
+            
+            print("[Auto Hunt] ⚔️ Killing non-match with " .. moveName)
+        end
+    end
+end
+
+local function triggerEncounter()
+    local zone = getCurrentZone()
+    if not zone or not zoneEncounters[zone] then return false end
+    
+    pcall(function()
+        dudeWhyld:FireServer(zone, zoneEncounters[zone])
+    end)
+    
+    return true
+end
+
+local function updateDisplay()
+    statusLabel.Text = getgenv().AutoHunt and "Status: ✅ Hunting" or "Status: ⏸️ Stopped"
+    statusLabel.TextColor3 = getgenv().AutoHunt and Color3.fromRGB(100, 255, 100) or Color3.fromRGB(255, 200, 100)
+    encountersLabel.Text = string.format("Encounters: %d | Matches: %d", encounterCount, matchCount)
+    chainLabel.Text = "Chain: " .. chainCount
+    zoneLabel.Text = "Zone: " .. (currentZone or "Unknown")
+end
+
+-- Hook StartBattle
+local startBattle = remotes:WaitForChild("StartBattle")
+startBattle.OnClientEvent:Connect(function(battleData)
+    if not battleData or type(battleData) ~= "table" then return end
+    
+    currentBattle = battleData
+    
+    if battleData.Player2Party and #battleData.Player2Party > 0 then
+        currentWildDoodle = battleData.Player2Party[1]
+        encounterCount = encounterCount + 1
+        
+        local doodleName = currentWildDoodle.Name or currentWildDoodle.RealName or "Unknown"
+        local isShiny = currentWildDoodle.Shiny and "✨" or ""
+        currentDoodleLabel.Text = string.format("Current: %s%s (Stars:%d Size:%.2f)", 
+            isShiny, doodleName, 
+            currentWildDoodle.Star or 0, 
+            currentWildDoodle.Size or 1)
+        
+        local isMatch = checkDoodleMatch(currentWildDoodle)
+        
+        if isMatch then
+            matchCount = matchCount + 1
+            getgenv().AutoHunt = false
+            statusLabel.Text = "Status: 🎯 MATCH FOUND!"
+            statusLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
+            startBtn.Text = "▶️ Start Hunt"
+            startBtn.BackgroundColor3 = Color3.fromRGB(50, 200, 100)
+            
+            print("[Auto Hunt] 🎯 MATCH FOUND!")
+            print("  Name: " .. doodleName)
+            print("  Stars: " .. (currentWildDoodle.Star or 0))
+            print("  Size: " .. (currentWildDoodle.Size or 1))
+            print("  Shiny: " .. tostring(currentWildDoodle.Shiny))
+        else
+            chainCount = chainCount + 1
+            if getgenv().AutoChain then
+                task.wait(1)
+                killWildDoodle()
+            end
+        end
+        
+        updateDisplay()
+    end
+end)
+
+-- Button handlers
+startBtn.MouseButton1Click:Connect(function()
+    getgenv().AutoHunt = not getgenv().AutoHunt
+    startBtn.Text = getgenv().AutoHunt and "⏸️ Stop Hunt" or "▶️ Start Hunt"
+    startBtn.BackgroundColor3 = getgenv().AutoHunt and Color3.fromRGB(255, 100, 100) or Color3.fromRGB(50, 200, 100)
+    updateDisplay()
+end)
+
+chainBtn.MouseButton1Click:Connect(function()
+    getgenv().AutoChain = not getgenv().AutoChain
+    chainBtn.Text = getgenv().AutoChain and "⛓️ Auto Chain: ON" or "⛓️ Auto Chain: OFF"
+    chainBtn.BackgroundColor3 = getgenv().AutoChain and Color3.fromRGB(255, 100, 50) or Color3.fromRGB(255, 150, 50)
+end)
+
+resetBtn.MouseButton1Click:Connect(function()
+    encounterCount = 0
+    matchCount = 0
+    chainCount = 0
+    updateDisplay()
+end)
+
+viewBtn.MouseButton1Click:Connect(function()
+    if currentWildDoodle and _G.testDoodleViewer then
+        _G.testDoodleViewer(currentWildDoodle)
+    end
+end)
+
+-- Hook zone detection
+local oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+    local method = getnamecallmethod()
+    local args = {...}
+    
+    if self.Name == "RequestChunk" and method == "InvokeServer" and #args >= 1 then
+        currentZone = tostring(args[1])
+        updateDisplay()
+    end
+    
+    return oldNamecall(self, ...)
+end)
+
+-- Main loop
+task.spawn(function()
+    task.wait(2)
+    currentZone = getCurrentZone()
+    updateDisplay()
+    
+    while task.wait(1) do
+        if getgenv().AutoHunt then
+            triggerEncounter()
+            task.wait(5)
+        end
+    end
+end)
+
+print([[
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  🎯 ADVANCED AUTO HUNT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ Set your preferences
+✅ Click Start Hunt
+✅ Enable Auto Chain to kill non-matches
+✅ Hunt stops when match found!
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+]])
