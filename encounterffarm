@@ -1,0 +1,384 @@
+getgenv().AutoEncounter = false
+
+local player = game:GetService("Players").LocalPlayer
+local remotes = player:WaitForChild("Remotes")
+local dudeWhyld = remotes:WaitForChild("DudeWhyld")
+
+-- Track current zone and stats
+local currentZone = nil
+local encounterCount = 0
+local encounterDelay = 5
+
+-- Map of zones to their encounter locations
+local zoneEncounters = {
+    ["025_Sweetsville"] = "WildGrass",
+    ["033_Academy"] = "WildGrass",
+    ["029_SubwayStation"] = "WildGrass",
+    ["TheCarnival"] = "WildGrass",
+}
+
+-- Create GUI
+local gui = Instance.new("ScreenGui")
+gui.Name = "AutoEncounterGUI"
+gui.ResetOnSpawn = false
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+-- Main Frame
+local main = Instance.new("Frame")
+main.Size = UDim2.new(0, 380, 0, 450)
+main.Position = UDim2.new(0.5, -190, 0.5, -225)
+main.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+main.BorderSizePixel = 0
+main.Active = true
+main.Draggable = true
+main.Parent = gui
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 10)
+corner.Parent = main
+
+-- Title Bar
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 40)
+title.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+title.BorderSizePixel = 0
+title.Text = "⚔️ Auto Encounter"
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 16
+title.Parent = main
+
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 10)
+titleCorner.Parent = title
+
+-- Close Button
+local close = Instance.new("TextButton")
+close.Size = UDim2.new(0, 30, 0, 30)
+close.Position = UDim2.new(1, -35, 0, 5)
+close.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+close.Text = "X"
+close.TextColor3 = Color3.fromRGB(255, 255, 255)
+close.Font = Enum.Font.GothamBold
+close.TextSize = 14
+close.BorderSizePixel = 0
+close.Parent = title
+
+local closeCorner = Instance.new("UICorner")
+closeCorner.CornerRadius = UDim.new(0, 6)
+closeCorner.Parent = close
+
+close.MouseButton1Click:Connect(function()
+    gui:Destroy()
+    getgenv().AutoEncounter = false
+end)
+
+-- Status Frame
+local statusFrame = Instance.new("Frame")
+statusFrame.Size = UDim2.new(1, -20, 0, 100)
+statusFrame.Position = UDim2.new(0, 10, 0, 50)
+statusFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+statusFrame.BorderSizePixel = 0
+statusFrame.Parent = main
+
+local statusCorner = Instance.new("UICorner")
+statusCorner.CornerRadius = UDim.new(0, 8)
+statusCorner.Parent = statusFrame
+
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Size = UDim2.new(1, -10, 0, 25)
+statusLabel.Position = UDim2.new(0, 5, 0, 5)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Text = "Status: ⏸️ Paused"
+statusLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
+statusLabel.Font = Enum.Font.GothamBold
+statusLabel.TextSize = 14
+statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+statusLabel.Parent = statusFrame
+
+local zoneLabel = Instance.new("TextLabel")
+zoneLabel.Size = UDim2.new(1, -10, 0, 20)
+zoneLabel.Position = UDim2.new(0, 5, 0, 30)
+zoneLabel.BackgroundTransparency = 1
+zoneLabel.Text = "Zone: Detecting..."
+zoneLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
+zoneLabel.Font = Enum.Font.Gotham
+zoneLabel.TextSize = 12
+zoneLabel.TextXAlignment = Enum.TextXAlignment.Left
+zoneLabel.Parent = statusFrame
+
+local counterLabel = Instance.new("TextLabel")
+counterLabel.Size = UDim2.new(1, -10, 0, 20)
+counterLabel.Position = UDim2.new(0, 5, 0, 50)
+counterLabel.BackgroundTransparency = 1
+counterLabel.Text = "Encounters: 0"
+counterLabel.TextColor3 = Color3.fromRGB(150, 255, 150)
+counterLabel.Font = Enum.Font.Gotham
+counterLabel.TextSize = 12
+counterLabel.TextXAlignment = Enum.TextXAlignment.Left
+counterLabel.Parent = statusFrame
+
+local delayLabel = Instance.new("TextLabel")
+delayLabel.Size = UDim2.new(1, -10, 0, 20)
+delayLabel.Position = UDim2.new(0, 5, 0, 70)
+delayLabel.BackgroundTransparency = 1
+delayLabel.Text = "Delay: 5s"
+delayLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+delayLabel.Font = Enum.Font.Gotham
+delayLabel.TextSize = 12
+delayLabel.TextXAlignment = Enum.TextXAlignment.Left
+delayLabel.Parent = statusFrame
+
+-- Delay Slider
+local sliderFrame = Instance.new("Frame")
+sliderFrame.Size = UDim2.new(1, -20, 0, 50)
+sliderFrame.Position = UDim2.new(0, 10, 0, 160)
+sliderFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+sliderFrame.BorderSizePixel = 0
+sliderFrame.Parent = main
+
+local sliderCorner = Instance.new("UICorner")
+sliderCorner.CornerRadius = UDim.new(0, 8)
+sliderCorner.Parent = sliderFrame
+
+local sliderTitle = Instance.new("TextLabel")
+sliderTitle.Size = UDim2.new(1, -10, 0, 20)
+sliderTitle.Position = UDim2.new(0, 5, 0, 5)
+sliderTitle.BackgroundTransparency = 1
+sliderTitle.Text = "⏱️ Encounter Delay"
+sliderTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+sliderTitle.Font = Enum.Font.GothamBold
+sliderTitle.TextSize = 12
+sliderTitle.TextXAlignment = Enum.TextXAlignment.Left
+sliderTitle.Parent = sliderFrame
+
+local slider = Instance.new("Frame")
+slider.Size = UDim2.new(1, -20, 0, 6)
+slider.Position = UDim2.new(0, 10, 0, 32)
+slider.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
+slider.BorderSizePixel = 0
+slider.Parent = sliderFrame
+
+local sliderBtnCorner = Instance.new("UICorner")
+sliderBtnCorner.CornerRadius = UDim.new(1, 0)
+sliderBtnCorner.Parent = slider
+
+local sliderBtn = Instance.new("TextButton")
+sliderBtn.Size = UDim2.new(0, 20, 0, 20)
+sliderBtn.Position = UDim2.new(0.2, -10, 0.5, -10)
+sliderBtn.BackgroundColor3 = Color3.fromRGB(100, 150, 255)
+sliderBtn.Text = ""
+sliderBtn.BorderSizePixel = 0
+sliderBtn.Parent = slider
+
+local btnCorner = Instance.new("UICorner")
+btnCorner.CornerRadius = UDim.new(1, 0)
+btnCorner.Parent = sliderBtn
+
+-- Slider logic
+local dragging = false
+sliderBtn.MouseButton1Down:Connect(function()
+    dragging = true
+end)
+
+game:GetService("UserInputService").InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
+end)
+
+game:GetService("RunService").RenderStepped:Connect(function()
+    if dragging then
+        local mouse = player:GetMouse()
+        local relativeX = math.clamp(mouse.X - slider.AbsolutePosition.X, 0, slider.AbsoluteSize.X)
+        local percent = relativeX / slider.AbsoluteSize.X
+        sliderBtn.Position = UDim2.new(percent, -10, 0.5, -10)
+        encounterDelay = math.floor(1 + (percent * 19)) -- 1-20 seconds
+        delayLabel.Text = "Delay: " .. encounterDelay .. "s"
+    end
+end)
+
+-- Zone List
+local zoneListLabel = Instance.new("TextLabel")
+zoneListLabel.Size = UDim2.new(1, -20, 0, 25)
+zoneListLabel.Position = UDim2.new(0, 10, 0, 220)
+zoneListLabel.BackgroundTransparency = 1
+zoneListLabel.Text = "📋 Configured Zones"
+zoneListLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+zoneListLabel.Font = Enum.Font.GothamBold
+zoneListLabel.TextSize = 13
+zoneListLabel.TextXAlignment = Enum.TextXAlignment.Left
+zoneListLabel.Parent = main
+
+local zoneScroll = Instance.new("ScrollingFrame")
+zoneScroll.Size = UDim2.new(1, -20, 0, 120)
+zoneScroll.Position = UDim2.new(0, 10, 0, 250)
+zoneScroll.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+zoneScroll.BorderSizePixel = 0
+zoneScroll.ScrollBarThickness = 6
+zoneScroll.Parent = main
+
+local zoneScrollCorner = Instance.new("UICorner")
+zoneScrollCorner.CornerRadius = UDim.new(0, 8)
+zoneScrollCorner.Parent = zoneScroll
+
+local zoneList = Instance.new("UIListLayout")
+zoneList.Padding = UDim.new(0, 3)
+zoneList.Parent = zoneScroll
+
+-- Function to update zone list display
+local function updateZoneList()
+    for _, child in ipairs(zoneScroll:GetChildren()) do
+        if child:IsA("TextLabel") then
+            child:Destroy()
+        end
+    end
+    
+    for zone, encounter in pairs(zoneEncounters) do
+        local entry = Instance.new("TextLabel")
+        entry.Size = UDim2.new(1, -10, 0, 25)
+        entry.BackgroundColor3 = Color3.fromRGB(50, 50, 55)
+        entry.BorderSizePixel = 0
+        entry.Text = "  " .. zone .. " → " .. encounter
+        entry.TextColor3 = Color3.fromRGB(220, 220, 220)
+        entry.Font = Enum.Font.Gotham
+        entry.TextSize = 11
+        entry.TextXAlignment = Enum.TextXAlignment.Left
+        entry.Parent = zoneScroll
+        
+        local entryCorner = Instance.new("UICorner")
+        entryCorner.CornerRadius = UDim.new(0, 4)
+        entryCorner.Parent = entry
+    end
+    
+    zoneScroll.CanvasSize = UDim2.new(0, 0, 0, zoneList.AbsoluteContentSize.Y)
+end
+
+-- Start/Stop Button
+local toggleBtn = Instance.new("TextButton")
+toggleBtn.Size = UDim2.new(1, -20, 0, 40)
+toggleBtn.Position = UDim2.new(0, 10, 1, -50)
+toggleBtn.BackgroundColor3 = Color3.fromRGB(50, 200, 100)
+toggleBtn.Text = "▶️ Start Encounters"
+toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleBtn.Font = Enum.Font.GothamBold
+toggleBtn.TextSize = 14
+toggleBtn.BorderSizePixel = 0
+toggleBtn.Parent = main
+
+local toggleCorner = Instance.new("UICorner")
+toggleCorner.CornerRadius = UDim.new(0, 8)
+toggleCorner.Parent = toggleBtn
+
+gui.Parent = game:GetService("CoreGui")
+
+-- Functions
+local function getCurrentZone()
+    local workspace = game:GetService("Workspace")
+    
+    for _, obj in ipairs(workspace:GetChildren()) do
+        local name = obj.Name
+        if name:match("^%d%d%d_") or zoneEncounters[name] then
+            return name
+        end
+    end
+    
+    return nil
+end
+
+local function triggerEncounter()
+    local zone = getCurrentZone()
+    
+    if not zone then
+        return false
+    end
+    
+    local encounterType = zoneEncounters[zone]
+    
+    if not encounterType then
+        return false
+    end
+    
+    pcall(function()
+        dudeWhyld:FireServer(zone, encounterType)
+    end)
+    
+    encounterCount = encounterCount + 1
+    counterLabel.Text = "Encounters: " .. encounterCount
+    
+    return true
+end
+
+local function updateStatus(running)
+    if running then
+        statusLabel.Text = "Status: ✅ Running"
+        statusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+        toggleBtn.Text = "⏸️ Stop Encounters"
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+    else
+        statusLabel.Text = "Status: ⏸️ Paused"
+        statusLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
+        toggleBtn.Text = "▶️ Start Encounters"
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(50, 200, 100)
+    end
+end
+
+-- Toggle button
+toggleBtn.MouseButton1Click:Connect(function()
+    getgenv().AutoEncounter = not getgenv().AutoEncounter
+    updateStatus(getgenv().AutoEncounter)
+end)
+
+-- Hook to detect zone changes
+local oldNamecall
+oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+    local method = getnamecallmethod()
+    local args = {...}
+    
+    if self.Name == "RequestChunk" and method == "InvokeServer" then
+        if #args >= 1 then
+            currentZone = tostring(args[1])
+            zoneLabel.Text = "Zone: " .. currentZone
+        end
+    end
+    
+    if self.Name == "DudeWhyld" and method == "FireServer" then
+        if #args >= 1 then
+            currentZone = tostring(args[1])
+            zoneLabel.Text = "Zone: " .. currentZone
+        end
+    end
+    
+    return oldNamecall(self, ...)
+end)
+
+-- Main encounter loop
+task.spawn(function()
+    task.wait(2)
+    currentZone = getCurrentZone()
+    
+    if currentZone then
+        zoneLabel.Text = "Zone: " .. currentZone
+    end
+    
+    while task.wait(1) do
+        if getgenv().AutoEncounter then
+            if triggerEncounter() then
+                task.wait(encounterDelay)
+            else
+                task.wait(3)
+            end
+        end
+    end
+end)
+
+-- Initialize
+updateZoneList()
+updateStatus(false)
+
+-- Commands
+_G.addEncounterZone = function(zoneName, encounterType)
+    zoneEncounters[zoneName] = encounterType
+    updateZoneList()
+    print("[Auto Encounter] Added: " .. zoneName .. " → " .. encounterType)
+end
