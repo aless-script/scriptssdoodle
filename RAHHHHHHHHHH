@@ -1,0 +1,438 @@
+-- Combined Auto Encounter & Chain Hunter
+-- Optimized and Compact GUI
+
+-- Safety checks
+if not game or not game.GetService then return end
+
+-- Robust Environment Setup
+local env = nil
+local success, result = pcall(function()
+    return getgenv and getgenv()
+end)
+
+if success and result then
+    env = result
+else
+    env = _G or {}
+end
+
+-- Initialize State
+env.AutoEncounter = {
+    Active = false,
+    ChainMode = false,
+    CurrentZone = nil,
+    Delay = 2,
+    Filters = {
+        Species = "",
+        Shiny = false,
+        Misprint = false,
+        HiddenTrait = false,
+        Gender = "Any", -- Any, Male, Female
+        MinStars = 0,
+        MinIV = 0,
+        MoveName = "Scratch"
+    },
+    Stats = {
+        Encounters = 0,
+        Chain = 0
+    }
+}
+
+local player = game:GetService("Players").LocalPlayer
+local remotes = player:WaitForChild("Remotes", 10)
+if not remotes then return end
+local dudeWhyld = remotes:WaitForChild("DudeWhyld", 5)
+local startBattle = remotes:WaitForChild("StartBattle", 5)
+
+-- Attempt to get Client Table for Smart Battle
+local Client = nil
+task.spawn(function()
+    pcall(function()
+        local playerGui = player:WaitForChild("PlayerGui", 10)
+        local gui = playerGui and playerGui:WaitForChild("Gui", 10)
+        local clientScript = gui and gui:WaitForChild("Client", 10)
+        if clientScript and getgenv and getsenv then
+            Client = getsenv(clientScript)
+        end
+    end)
+end)
+
+-- Zone Map
+local zoneEncounters = {
+    ["025_Sweetsville"] = "WildGrass",
+    ["033_Academy"] = "WildGrass",
+    ["029_SubwayStation"] = "WildGrass",
+    ["TheCarnival"] = "WildGrass",
+    -- Add more if needed or rely on auto-detection
+}
+
+-- GUI Creation
+local gui = Instance.new("ScreenGui")
+gui.Name = "CompactAutoEncounter"
+gui.ResetOnSpawn = false
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+local main = Instance.new("Frame")
+main.Name = "MainFrame"
+main.Size = UDim2.new(0, 220, 0, 450) -- Expanded size
+main.Position = UDim2.new(0.05, 0, 0.5, -225)
+main.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+main.BorderSizePixel = 0
+main.Active = true
+main.Draggable = true
+main.Parent = gui
+
+local uicorner = Instance.new("UICorner")
+uicorner.CornerRadius = UDim.new(0, 8)
+uicorner.Parent = main
+
+-- Header
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -30, 0, 30)
+title.Position = UDim2.new(0, 10, 0, 0)
+title.BackgroundTransparency = 1
+title.Text = "⚔️ Auto Encounter"
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 14
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = main
+
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0, 25, 0, 25)
+closeBtn.Position = UDim2.new(1, -30, 0, 2.5)
+closeBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+closeBtn.Text = "X"
+closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.Parent = main
+Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 4)
+
+closeBtn.MouseButton1Click:Connect(function()
+    env.AutoEncounter.Active = false
+    gui:Destroy()
+end)
+
+-- Info Display (The requested fields)
+local infoFrame = Instance.new("Frame")
+infoFrame.Size = UDim2.new(1, -20, 0, 160)
+infoFrame.Position = UDim2.new(0, 10, 0, 35)
+infoFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+infoFrame.Parent = main
+Instance.new("UICorner", infoFrame).CornerRadius = UDim.new(0, 6)
+
+local function createInfoLine(order, labelText)
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -10, 0, 18)
+    label.Position = UDim2.new(0, 5, 0, (order - 1) * 18 + 5)
+    label.BackgroundTransparency = 1
+    label.Text = labelText .. ": -"
+    label.TextColor3 = Color3.fromRGB(200, 200, 200)
+    label.Font = Enum.Font.Gotham
+    label.TextSize = 11
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = infoFrame
+    return label
+end
+
+local infoLabels = {
+    Name = createInfoLine(1, "Name"),
+    Stars = createInfoLine(2, "Stars"),
+    Trait = createInfoLine(3, "Trait"),
+    Gender = createInfoLine(4, "Gender"),
+    Misprint = createInfoLine(5, "Misprint"),
+    Item = createInfoLine(6, "Item"),
+    Equip = createInfoLine(7, "Equip"),
+    Skin = createInfoLine(8, "Skin"),
+}
+
+-- Controls
+local controlFrame = Instance.new("Frame")
+controlFrame.Size = UDim2.new(1, -20, 0, 170)
+controlFrame.Position = UDim2.new(0, 10, 0, 200)
+controlFrame.BackgroundTransparency = 1
+controlFrame.Parent = main
+
+-- Mode Toggle
+local chainModeBtn = Instance.new("TextButton")
+chainModeBtn.Size = UDim2.new(1, 0, 0, 25)
+chainModeBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
+chainModeBtn.Text = "Chain Mode: OFF"
+chainModeBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+chainModeBtn.Font = Enum.Font.Gotham
+chainModeBtn.TextSize = 12
+chainModeBtn.Parent = controlFrame
+Instance.new("UICorner", chainModeBtn).CornerRadius = UDim.new(0, 6)
+
+chainModeBtn.MouseButton1Click:Connect(function()
+    env.AutoEncounter.ChainMode = not env.AutoEncounter.ChainMode
+    if env.AutoEncounter.ChainMode then
+        chainModeBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 255)
+        chainModeBtn.Text = "Chain Mode: ON"
+        chainModeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    else
+        chainModeBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
+        chainModeBtn.Text = "Chain Mode: OFF"
+        chainModeBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+    end
+end)
+
+-- Target Species Input
+local speciesInput = Instance.new("TextBox")
+speciesInput.Size = UDim2.new(1, 0, 0, 25)
+speciesInput.Position = UDim2.new(0, 0, 0, 30)
+speciesInput.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+speciesInput.Text = ""
+speciesInput.PlaceholderText = "Target Species"
+speciesInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+speciesInput.Font = Enum.Font.Gotham
+speciesInput.TextSize = 12
+speciesInput.Parent = controlFrame
+Instance.new("UICorner", speciesInput).CornerRadius = UDim.new(0, 6)
+speciesInput:GetPropertyChangedSignal("Text"):Connect(function() env.AutoEncounter.Filters.Species = speciesInput.Text end)
+
+-- Min Stars Input
+local starsInput = Instance.new("TextBox")
+starsInput.Size = UDim2.new(0.48, 0, 0, 25)
+starsInput.Position = UDim2.new(0, 0, 0, 60)
+starsInput.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+starsInput.Text = ""
+starsInput.PlaceholderText = "Min Stars"
+starsInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+starsInput.Font = Enum.Font.Gotham
+starsInput.TextSize = 12
+starsInput.Parent = controlFrame
+Instance.new("UICorner", starsInput).CornerRadius = UDim.new(0, 6)
+starsInput:GetPropertyChangedSignal("Text"):Connect(function() env.AutoEncounter.Filters.MinStars = tonumber(starsInput.Text) or 0 end)
+
+-- Hidden Trait Toggle
+local htBtn = Instance.new("TextButton")
+htBtn.Size = UDim2.new(0.48, 0, 0, 25)
+htBtn.Position = UDim2.new(0.52, 0, 0, 60)
+htBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
+htBtn.Text = "HT: OFF"
+htBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+htBtn.Font = Enum.Font.Gotham
+htBtn.TextSize = 11
+htBtn.Parent = controlFrame
+Instance.new("UICorner", htBtn).CornerRadius = UDim.new(0, 6)
+htBtn.MouseButton1Click:Connect(function()
+    env.AutoEncounter.Filters.HiddenTrait = not env.AutoEncounter.Filters.HiddenTrait
+    htBtn.Text = env.AutoEncounter.Filters.HiddenTrait and "HT: ON" or "HT: OFF"
+    htBtn.BackgroundColor3 = env.AutoEncounter.Filters.HiddenTrait and Color3.fromRGB(50, 150, 255) or Color3.fromRGB(60, 60, 65)
+    htBtn.TextColor3 = env.AutoEncounter.Filters.HiddenTrait and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(200, 200, 200)
+end)
+
+-- Move Name Input
+local moveInput = Instance.new("TextBox")
+moveInput.Size = UDim2.new(1, 0, 0, 25)
+moveInput.Position = UDim2.new(0, 0, 0, 90)
+moveInput.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+moveInput.Text = "Scratch"
+moveInput.PlaceholderText = "Move Name (for Kill)"
+moveInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+moveInput.Font = Enum.Font.Gotham
+moveInput.TextSize = 12
+moveInput.Parent = controlFrame
+Instance.new("UICorner", moveInput).CornerRadius = UDim.new(0, 6)
+moveInput:GetPropertyChangedSignal("Text"):Connect(function() env.AutoEncounter.Filters.MoveName = moveInput.Text end)
+
+
+-- Start/Stop
+local toggleBtn = Instance.new("TextButton")
+toggleBtn.Size = UDim2.new(1, 0, 0, 35)
+toggleBtn.Position = UDim2.new(0, 0, 1, -35)
+toggleBtn.BackgroundColor3 = Color3.fromRGB(50, 200, 100)
+toggleBtn.Text = "▶️ Start"
+toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleBtn.Font = Enum.Font.GothamBold
+toggleBtn.TextSize = 14
+toggleBtn.Parent = controlFrame
+Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(0, 6)
+
+toggleBtn.MouseButton1Click:Connect(function()
+    env.AutoEncounter.Active = not env.AutoEncounter.Active
+    if env.AutoEncounter.Active then
+        toggleBtn.Text = "⏸️ Stop"
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+    else
+        toggleBtn.Text = "▶️ Start"
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(50, 200, 100)
+    end
+end)
+
+-- Logic
+local function updateDisplay(data)
+    if not data then return end
+    infoLabels.Name.Text = "Name: " .. (data.Name or data.RealName or "Unknown")
+    infoLabels.Stars.Text = "Stars: " .. (data.Star or 0) .. "⭐"
+    
+    local trait = data.Trait or data.HiddenTrait or data.Ability or "None"
+    infoLabels.Trait.Text = "Trait: " .. tostring(trait)
+    
+    local gender = "Genderless"
+    if data.Gender == "Male" then gender = "♂ Male" end
+    if data.Gender == "Female" then gender = "♀ Female" end
+    infoLabels.Gender.Text = "Gender: " .. gender
+    
+    local misprint = "No"
+    if data.Shiny then misprint = "Shiny" end
+    if data.Color and data.Color ~= "Normal" then misprint = data.Color end
+    infoLabels.Misprint.Text = "Misprint: " .. misprint
+    
+    infoLabels.Item.Text = "Item: " .. (data.Item or "None")
+    infoLabels.Equip.Text = "Equip: " .. (data.Equipment or "None")
+    infoLabels.Skin.Text = "Skin: " .. (data.Skin or "None")
+end
+
+local function checkMatch(data)
+    if env.AutoEncounter.Filters.Species ~= "" then
+        local name = (data.Name or data.RealName or ""):lower()
+        if not name:find(env.AutoEncounter.Filters.Species:lower()) then
+            return false, "Species Mismatch"
+        end
+    end
+    
+    if (data.Star or 0) < env.AutoEncounter.Filters.MinStars then
+        return false, "Low Stars"
+    end
+    
+    if env.AutoEncounter.Filters.HiddenTrait then
+        local trait = data.Trait or data.HiddenTrait or data.Ability or ""
+        if not data.HiddenTrait then
+             return false, "No HT"
+        end
+    end
+
+    return true, "Match"
+end
+
+-- Battle Event Hook
+startBattle.OnClientEvent:Connect(function(battleData)
+    if not env.AutoEncounter.Active then return end
+    
+    local wildDoodle = battleData.Player2Party and battleData.Player2Party[1]
+    local myDoodle = battleData.Player1Party and battleData.Player1Party[1]
+    
+    if wildDoodle and myDoodle then
+        updateDisplay(wildDoodle)
+        
+        if env.AutoEncounter.ChainMode then
+            local isMatch, reason = checkMatch(wildDoodle)
+            local speciesMatch = (wildDoodle.Name or ""):lower():find(env.AutoEncounter.Filters.Species:lower())
+            
+            if isMatch then
+                -- Found target with requirements! Stop!
+                env.AutoEncounter.Active = false
+                toggleBtn.Text = "🎉 Found!"
+                toggleBtn.BackgroundColor3 = Color3.fromRGB(255, 215, 0)
+            else
+                -- Not match.
+                local actionArgs = nil
+                
+                if speciesMatch then
+                    -- Right species, but failed requirements. Kill it to chain.
+                    
+                    -- Smart Move Logic
+                    local selectedMove = env.AutoEncounter.Filters.MoveName -- Default
+                    
+                    if Client and Client.ClientDatabase and Client.Typings and myDoodle.Moves then
+                        local bestMove = nil
+                        local highestMultiplier = -100
+                        
+                        pcall(function()
+                            for _, move in pairs(myDoodle.Moves) do
+                                local moveName = type(move) == "table" and move.Name or move
+                                local moveData = Client.ClientDatabase:GetMoveData(moveName)
+                                
+                                if moveData and moveData.Power then -- Ensure it's an attacking move
+                                    local multiplier = Client.Typings:GetEffectiveness(myDoodle, wildDoodle, moveData.Type)
+                                    if multiplier > highestMultiplier then
+                                        highestMultiplier = multiplier
+                                        bestMove = moveName
+                                    end
+                                end
+                            end
+                        end)
+                        
+                        if bestMove then
+                            selectedMove = bestMove
+                        end
+                    end
+
+                    actionArgs = {
+                        {
+                            {
+                                Target = wildDoodle.ID,
+                                ActionType = "Attack",
+                                Action = selectedMove,
+                                User = myDoodle.ID
+                            }
+                        }
+                    }
+                else
+                    -- Different species. Run away.
+                    actionArgs = {
+                        {
+                            {
+                                Target = "RunAway",
+                                ActionType = "Run",
+                                User = myDoodle.ID
+                            }
+                        }
+                    }
+                end
+                
+                if actionArgs then
+                     task.wait(0.5)
+                     local ba = remotes:FindFirstChild("BattleAction")
+                     if ba then
+                         ba:FireServer(unpack(actionArgs))
+                     end
+                end
+            end
+        end
+    end
+end)
+
+-- Main Loop
+task.spawn(function()
+    while task.wait(1) do
+        if env.AutoEncounter.Active then
+            local char = player.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                -- Zone detection
+                local zone = nil
+                -- Simple zone detection from nearby objects or predefined list
+                -- (Simplified for compactness, use your original detection logic here)
+                -- For now, relying on user or simple existence check
+                
+                -- Trigger
+                if dudeWhyld then
+                     -- Use last known zone or iterate
+                     -- (Implementing the simple trigger logic from script 1)
+                     local workspace = game:GetService("Workspace")
+                     for _, obj in ipairs(workspace:GetChildren()) do
+                        if obj.Name:match("^%d%d%d_") or zoneEncounters[obj.Name] then
+                            zone = obj.Name
+                            break
+                        end
+                     end
+                     
+                     if zone and zoneEncounters[zone] then
+                         pcall(function()
+                             dudeWhyld:FireServer(zone, zoneEncounters[zone])
+                         end)
+                     end
+                end
+            end
+            task.wait(env.AutoEncounter.Delay)
+        end
+    end
+end)
+
+-- Safe Parent
+local success = pcall(function()
+    gui.Parent = game:GetService("CoreGui")
+end)
+if not success then gui.Parent = player.PlayerGui end
