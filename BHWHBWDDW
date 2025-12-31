@@ -109,12 +109,15 @@ copyCorner.CornerRadius = UDim.new(0, 6)
 copyCorner.Parent = copyBtn
 
 -- Try CoreGui first, fallback to PlayerGui if it fails
-local success = pcall(function()
+local parentSuccess = pcall(function()
     gui.Parent = game:GetService("CoreGui")
 end)
 
-if not success then
+if not parentSuccess then
     gui.Parent = player:WaitForChild("PlayerGui")
+    print("[Doodle Viewer] Using PlayerGui (GUI will reset on death)")
+else
+    print("[Doodle Viewer] Using CoreGui (GUI persists)")
 end
 
 -- Helper function to create stat display
