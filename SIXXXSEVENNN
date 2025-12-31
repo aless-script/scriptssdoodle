@@ -4,20 +4,19 @@
 -- Safety checks
 if not game or not game.GetService then return end
 
--- Universal Environment Support (Fix for 'attempt to call a nil value')
+-- Robust Environment Setup
 local env = nil
-if getgenv then
-    env = getgenv()
+local success, result = pcall(function()
+    return getgenv and getgenv()
+end)
+
+if success and result then
+    env = result
 else
-    env = _G
+    env = _G or {}
 end
 
--- Ensure env table exists
-if not env then
-    env = {} 
-    _G = env
-end
-
+-- Initialize State
 env.AutoEncounter = {
     Active = false,
     ChainMode = false,
