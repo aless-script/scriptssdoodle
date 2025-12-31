@@ -1,0 +1,285 @@
+local player = game:GetService("Players").LocalPlayer
+local StarterGui = game:GetService("StarterGui")
+local TweenService = game:GetService("TweenService")
+
+-- Create ScreenGui
+local gui = Instance.new("ScreenGui")
+gui.Name = "LocationTrackerGUI"
+gui.ResetOnSpawn = false
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+-- Main Frame
+local main = Instance.new("Frame")
+main.Size = UDim2.new(0, 350, 0, 400)
+main.Position = UDim2.new(0.5, -175, 0.5, -200)
+main.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+main.BorderSizePixel = 0
+main.Active = true
+main.Draggable = true
+main.Parent = gui
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 10)
+corner.Parent = main
+
+-- Title Bar
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 40)
+title.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+title.BorderSizePixel = 0
+title.Text = "📍 Location Tracker"
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 16
+title.Parent = main
+
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 10)
+titleCorner.Parent = title
+
+-- Close Button
+local close = Instance.new("TextButton")
+close.Size = UDim2.new(0, 30, 0, 30)
+close.Position = UDim2.new(1, -35, 0, 5)
+close.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+close.Text = "X"
+close.TextColor3 = Color3.fromRGB(255, 255, 255)
+close.Font = Enum.Font.GothamBold
+close.TextSize = 14
+close.BorderSizePixel = 0
+close.Parent = title
+
+local closeCorner = Instance.new("UICorner")
+closeCorner.CornerRadius = UDim.new(0, 6)
+closeCorner.Parent = close
+
+close.MouseButton1Click:Connect(function()
+    gui:Destroy()
+end)
+
+-- Current Location Display
+local locationFrame = Instance.new("Frame")
+locationFrame.Size = UDim2.new(1, -20, 0, 80)
+locationFrame.Position = UDim2.new(0, 10, 0, 50)
+locationFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+locationFrame.BorderSizePixel = 0
+locationFrame.Parent = main
+
+local locCorner = Instance.new("UICorner")
+locCorner.CornerRadius = UDim.new(0, 8)
+locCorner.Parent = locationFrame
+
+local currentZone = Instance.new("TextLabel")
+currentZone.Size = UDim2.new(1, -10, 0, 30)
+currentZone.Position = UDim2.new(0, 5, 0, 5)
+currentZone.BackgroundTransparency = 1
+currentZone.Text = "Zone: Loading..."
+currentZone.TextColor3 = Color3.fromRGB(100, 200, 255)
+currentZone.Font = Enum.Font.GothamBold
+currentZone.TextSize = 14
+currentZone.TextXAlignment = Enum.TextXAlignment.Left
+currentZone.Parent = locationFrame
+
+local currentPos = Instance.new("TextLabel")
+currentPos.Size = UDim2.new(1, -10, 0, 20)
+currentPos.Position = UDim2.new(0, 5, 0, 35)
+currentPos.BackgroundTransparency = 1
+currentPos.Text = "Pos: 0, 0, 0"
+currentPos.TextColor3 = Color3.fromRGB(200, 200, 200)
+currentPos.Font = Enum.Font.Gotham
+currentPos.TextSize = 12
+currentPos.TextXAlignment = Enum.TextXAlignment.Left
+currentPos.Parent = locationFrame
+
+local currentEntrance = Instance.new("TextLabel")
+currentEntrance.Size = UDim2.new(1, -10, 0, 20)
+currentEntrance.Position = UDim2.new(0, 5, 0, 55)
+currentEntrance.BackgroundTransparency = 1
+currentEntrance.Text = "Entrance: N/A"
+currentEntrance.TextColor3 = Color3.fromRGB(150, 150, 150)
+currentEntrance.Font = Enum.Font.Gotham
+currentEntrance.TextSize = 11
+currentEntrance.TextXAlignment = Enum.TextXAlignment.Left
+currentEntrance.Parent = locationFrame
+
+-- History Label
+local historyLabel = Instance.new("TextLabel")
+historyLabel.Size = UDim2.new(1, -20, 0, 25)
+historyLabel.Position = UDim2.new(0, 10, 0, 140)
+historyLabel.BackgroundTransparency = 1
+historyLabel.Text = "📜 Location History"
+historyLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+historyLabel.Font = Enum.Font.GothamBold
+historyLabel.TextSize = 13
+historyLabel.TextXAlignment = Enum.TextXAlignment.Left
+historyLabel.Parent = main
+
+-- History ScrollFrame
+local historyScroll = Instance.new("ScrollingFrame")
+historyScroll.Size = UDim2.new(1, -20, 0, 165)
+historyScroll.Position = UDim2.new(0, 10, 0, 170)
+historyScroll.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+historyScroll.BorderSizePixel = 0
+historyScroll.ScrollBarThickness = 6
+historyScroll.Parent = main
+
+local histCorner = Instance.new("UICorner")
+histCorner.CornerRadius = UDim.new(0, 8)
+histCorner.Parent = historyScroll
+
+local historyList = Instance.new("UIListLayout")
+historyList.Padding = UDim.new(0, 5)
+historyList.Parent = historyScroll
+
+-- Refresh Button
+local refresh = Instance.new("TextButton")
+refresh.Size = UDim2.new(0.48, 0, 0, 35)
+refresh.Position = UDim2.new(0, 10, 1, -45)
+refresh.BackgroundColor3 = Color3.fromRGB(50, 150, 255)
+refresh.Text = "🔄 Refresh"
+refresh.TextColor3 = Color3.fromRGB(255, 255, 255)
+refresh.Font = Enum.Font.GothamBold
+refresh.TextSize = 13
+refresh.BorderSizePixel = 0
+refresh.Parent = main
+
+local refCorner = Instance.new("UICorner")
+refCorner.CornerRadius = UDim.new(0, 6)
+refCorner.Parent = refresh
+
+-- Clear Button
+local clear = Instance.new("TextButton")
+clear.Size = UDim2.new(0.48, 0, 0, 35)
+clear.Position = UDim2.new(0.52, 0, 1, -45)
+clear.BackgroundColor3 = Color3.fromRGB(255, 100, 50)
+clear.Text = "🗑️ Clear"
+clear.TextColor3 = Color3.fromRGB(255, 255, 255)
+clear.Font = Enum.Font.GothamBold
+clear.TextSize = 13
+clear.BorderSizePixel = 0
+clear.Parent = main
+
+local clrCorner = Instance.new("UICorner")
+clrCorner.CornerRadius = UDim.new(0, 6)
+clrCorner.Parent = clear
+
+gui.Parent = game:GetService("CoreGui")
+
+-- Functions
+local locationHistory = {}
+
+local function addToHistory(zone, entrance, pos)
+    local timestamp = os.date("%H:%M:%S")
+    local entry = Instance.new("TextLabel")
+    entry.Size = UDim2.new(1, -10, 0, 40)
+    entry.BackgroundColor3 = Color3.fromRGB(50, 50, 55)
+    entry.BorderSizePixel = 0
+    entry.Text = string.format("[%s] %s\n%s | %s", timestamp, zone, entrance or "N/A", pos)
+    entry.TextColor3 = Color3.fromRGB(220, 220, 220)
+    entry.Font = Enum.Font.Gotham
+    entry.TextSize = 11
+    entry.TextXAlignment = Enum.TextXAlignment.Left
+    entry.TextYAlignment = Enum.TextYAlignment.Top
+    entry.Parent = historyScroll
+    
+    local entryCorner = Instance.new("UICorner")
+    entryCorner.CornerRadius = UDim.new(0, 6)
+    entryCorner.Parent = entry
+    
+    table.insert(locationHistory, 1, entry)
+    
+    if #locationHistory > 20 then
+        locationHistory[#locationHistory]:Destroy()
+        table.remove(locationHistory)
+    end
+    
+    historyScroll.CanvasSize = UDim2.new(0, 0, 0, historyList.AbsoluteContentSize.Y)
+end
+
+local function getCurrentLocation()
+    local character = player.Character
+    if not character then return "No Character" end
+    
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return "No HRP" end
+    
+    local pos = hrp.Position
+    return string.format("%.0f, %.0f, %.0f", pos.X, pos.Y, pos.Z)
+end
+
+local function updateDisplay(zone, entrance, pos)
+    currentZone.Text = "Zone: " .. (zone or "Unknown")
+    currentPos.Text = "Pos: " .. (pos or getCurrentLocation())
+    currentEntrance.Text = "Entrance: " .. (entrance or "N/A")
+end
+
+local function manualLocationCheck()
+    local pos = getCurrentLocation()
+    local workspace = game:GetService("Workspace")
+    local zones = {}
+    
+    for _, obj in ipairs(workspace:GetChildren()) do
+        if obj.Name:match("^%d%d%d_") then
+            table.insert(zones, obj.Name)
+        end
+    end
+    
+    local zone = #zones > 0 and zones[1] or "No Zone Detected"
+    updateDisplay(zone, "Manual Check", pos)
+    addToHistory(zone, "Manual Check", pos)
+end
+
+-- Wait for remotes
+local remotes = player:WaitForChild("Remotes", 10)
+
+if remotes then
+    -- Hook using namecall metamethod
+    local oldNamecall
+    oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+        local method = getnamecallmethod()
+        local args = {...}
+        
+        -- Hook RequestChunk InvokeServer
+        if self.Name == "RequestChunk" and method == "InvokeServer" then
+            if #args >= 3 then
+                local zone = tostring(args[1])
+                local entrance = tostring(args[2])
+                local pos = getCurrentLocation()
+                task.spawn(function()
+                    updateDisplay(zone, entrance, pos)
+                    addToHistory(zone, entrance, pos)
+                end)
+            end
+        end
+        
+        -- Hook DudeWhyld FireServer
+        if self.Name == "DudeWhyld" and method == "FireServer" then
+            if #args >= 2 then
+                local zone = tostring(args[1])
+                local exit = tostring(args[2])
+                local pos = getCurrentLocation()
+                task.spawn(function()
+                    updateDisplay(zone, exit, pos)
+                    addToHistory(zone, exit, pos)
+                end)
+            end
+        end
+        
+        return oldNamecall(self, ...)
+    end)
+end
+
+-- Button Actions
+refresh.MouseButton1Click:Connect(manualLocationCheck)
+
+clear.MouseButton1Click:Connect(function()
+    for _, entry in ipairs(locationHistory) do
+        entry:Destroy()
+    end
+    locationHistory = {}
+    historyScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+end)
+
+-- Initial check
+task.wait(1)
+manualLocationCheck()
