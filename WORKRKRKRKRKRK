@@ -1,0 +1,642 @@
+-- Intelligent Doodle Chain Hunter
+-- Combines auto-encountering with smart filtering and chain management
+
+getgenv().ChainHunter = {
+    Active = false,
+    Target = nil,
+    Chain = 0,
+    Encounters = 0,
+    Filters = {}
+}
+
+local player = game:GetService("Players").LocalPlayer
+local RunService = game:GetService("RunService")
+local remotes = player:WaitForChild("Remotes")
+local dudeWhyld = remotes:WaitForChild("DudeWhyld")
+local startBattle = remotes:WaitForChild("StartBattle")
+
+-- Configuration
+local config = {
+    encounterDelay = 3,
+    currentZone = nil,
+    lastDoodleData = nil,
+    foundTarget = false
+}
+
+local zoneEncounters = {
+    ["025_Sweetsville"] = "WildGrass",
+    ["033_Academy"] = "WildGrass",
+    ["029_SubwayStation"] = "WildGrass",
+    ["TheCarnival"] = "WildGrass",
+}
+
+-- Create GUI
+local gui = Instance.new("ScreenGui")
+gui.Name = "ChainHunterGUI"
+gui.ResetOnSpawn = false
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+-- Main Frame
+local main = Instance.new("Frame")
+main.Size = UDim2.new(0, 500, 0, 650)
+main.Position = UDim2.new(0.5, -250, 0.5, -325)
+main.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+main.BorderSizePixel = 0
+main.Active = true
+main.Draggable = true
+main.Parent = gui
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 12)
+corner.Parent = main
+
+-- Title Bar
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 45)
+title.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+title.BorderSizePixel = 0
+title.Text = "🎯 Intelligent Doodle Chain Hunter"
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 16
+title.Parent = main
+
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 12)
+titleCorner.Parent = title
+
+-- Close Button
+local close = Instance.new("TextButton")
+close.Size = UDim2.new(0, 35, 0, 35)
+close.Position = UDim2.new(1, -40, 0, 5)
+close.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+close.Text = "X"
+close.TextColor3 = Color3.fromRGB(255, 255, 255)
+close.Font = Enum.Font.GothamBold
+close.TextSize = 14
+close.BorderSizePixel = 0
+close.Parent = title
+
+local closeCorner = Instance.new("UICorner")
+closeCorner.CornerRadius = UDim.new(0, 6)
+closeCorner.Parent = close
+
+close.MouseButton1Click:Connect(function()
+    gui:Destroy()
+    getgenv().ChainHunter.Active = false
+end)
+
+-- Status Frame
+local statusFrame = Instance.new("Frame")
+statusFrame.Size = UDim2.new(1, -20, 0, 140)
+statusFrame.Position = UDim2.new(0, 10, 0, 55)
+statusFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+statusFrame.BorderSizePixel = 0
+statusFrame.Parent = main
+
+local statusCorner = Instance.new("UICorner")
+statusCorner.CornerRadius = UDim.new(0, 8)
+statusCorner.Parent = statusFrame
+
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Size = UDim2.new(1, -10, 0, 25)
+statusLabel.Position = UDim2.new(0, 5, 0, 5)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Text = "Status: ⏸️ Idle"
+statusLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
+statusLabel.Font = Enum.Font.GothamBold
+statusLabel.TextSize = 14
+statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+statusLabel.Parent = statusFrame
+
+local targetLabel = Instance.new("TextLabel")
+targetLabel.Size = UDim2.new(1, -10, 0, 22)
+targetLabel.Position = UDim2.new(0, 5, 0, 30)
+targetLabel.BackgroundTransparency = 1
+targetLabel.Text = "Target: None"
+targetLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
+targetLabel.Font = Enum.Font.Gotham
+targetLabel.TextSize = 12
+targetLabel.TextXAlignment = Enum.TextXAlignment.Left
+targetLabel.Parent = statusFrame
+
+local chainLabel = Instance.new("TextLabel")
+chainLabel.Size = UDim2.new(1, -10, 0, 22)
+chainLabel.Position = UDim2.new(0, 5, 0, 52)
+chainLabel.BackgroundTransparency = 1
+chainLabel.Text = "Chain: 0"
+chainLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
+chainLabel.Font = Enum.Font.GothamBold
+chainLabel.TextSize = 12
+chainLabel.TextXAlignment = Enum.TextXAlignment.Left
+chainLabel.Parent = statusFrame
+
+local encounterLabel = Instance.new("TextLabel")
+encounterLabel.Size = UDim2.new(1, -10, 0, 22)
+encounterLabel.Position = UDim2.new(0, 5, 0, 74)
+encounterLabel.BackgroundTransparency = 1
+encounterLabel.Text = "Encounters: 0"
+encounterLabel.TextColor3 = Color3.fromRGB(150, 255, 150)
+encounterLabel.Font = Enum.Font.Gotham
+encounterLabel.TextSize = 12
+encounterLabel.TextXAlignment = Enum.TextXAlignment.Left
+encounterLabel.Parent = statusFrame
+
+local zoneLabel = Instance.new("TextLabel")
+zoneLabel.Size = UDim2.new(1, -10, 0, 22)
+zoneLabel.Position = UDim2.new(0, 5, 0, 96)
+zoneLabel.BackgroundTransparency = 1
+zoneLabel.Text = "Zone: Detecting..."
+zoneLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+zoneLabel.Font = Enum.Font.Gotham
+zoneLabel.TextSize = 12
+zoneLabel.TextXAlignment = Enum.TextXAlignment.Left
+zoneLabel.Parent = statusFrame
+
+local actionLabel = Instance.new("TextLabel")
+actionLabel.Size = UDim2.new(1, -10, 0, 22)
+actionLabel.Position = UDim2.new(0, 5, 0, 118)
+actionLabel.BackgroundTransparency = 1
+actionLabel.Text = "Last Action: Waiting..."
+actionLabel.TextColor3 = Color3.fromRGB(255, 150, 255)
+actionLabel.Font = Enum.Font.Gotham
+actionLabel.TextSize = 11
+actionLabel.TextXAlignment = Enum.TextXAlignment.Left
+actionLabel.Parent = statusFrame
+
+-- Filter Configuration Frame
+local filterFrame = Instance.new("Frame")
+filterFrame.Size = UDim2.new(1, -20, 0, 320)
+filterFrame.Position = UDim2.new(0, 10, 0, 205)
+filterFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+filterFrame.BorderSizePixel = 0
+filterFrame.Parent = main
+
+local filterCorner = Instance.new("UICorner")
+filterCorner.CornerRadius = UDim.new(0, 8)
+filterCorner.Parent = filterFrame
+
+local filterTitle = Instance.new("TextLabel")
+filterTitle.Size = UDim2.new(1, -10, 0, 30)
+filterTitle.Position = UDim2.new(0, 5, 0, 5)
+filterTitle.BackgroundTransparency = 1
+filterTitle.Text = "🎯 Target Filters"
+filterTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+filterTitle.Font = Enum.Font.GothamBold
+filterTitle.TextSize = 14
+filterTitle.TextXAlignment = Enum.TextXAlignment.Left
+filterTitle.Parent = filterFrame
+
+-- Target Species Input
+local speciesLabel = Instance.new("TextLabel")
+speciesLabel.Size = UDim2.new(1, -10, 0, 20)
+speciesLabel.Position = UDim2.new(0, 5, 0, 40)
+speciesLabel.BackgroundTransparency = 1
+speciesLabel.Text = "Target Species:"
+speciesLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+speciesLabel.Font = Enum.Font.Gotham
+speciesLabel.TextSize = 11
+speciesLabel.TextXAlignment = Enum.TextXAlignment.Left
+speciesLabel.Parent = filterFrame
+
+local speciesInput = Instance.new("TextBox")
+speciesInput.Size = UDim2.new(1, -10, 0, 30)
+speciesInput.Position = UDim2.new(0, 5, 0, 60)
+speciesInput.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+speciesInput.BorderSizePixel = 0
+speciesInput.Text = ""
+speciesInput.PlaceholderText = "Enter species name (e.g., Bunsweet)"
+speciesInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+speciesInput.Font = Enum.Font.Gotham
+speciesInput.TextSize = 11
+speciesInput.ClearTextOnFocus = false
+speciesInput.Parent = filterFrame
+
+local speciesCorner = Instance.new("UICorner")
+speciesCorner.CornerRadius = UDim.new(0, 6)
+speciesCorner.Parent = speciesInput
+
+-- Helper function to create toggle button
+local function createToggle(name, position, parent)
+    local toggle = Instance.new("TextButton")
+    toggle.Size = UDim2.new(0.48, 0, 0, 28)
+    toggle.Position = position
+    toggle.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
+    toggle.Text = name .. ": OFF"
+    toggle.TextColor3 = Color3.fromRGB(200, 200, 200)
+    toggle.Font = Enum.Font.Gotham
+    toggle.TextSize = 10
+    toggle.BorderSizePixel = 0
+    toggle.Parent = parent
+    
+    local toggleCorner = Instance.new("UICorner")
+    toggleCorner.CornerRadius = UDim.new(0, 6)
+    toggleCorner.Parent = toggle
+    
+    local active = false
+    toggle.MouseButton1Click:Connect(function()
+        active = not active
+        if active then
+            toggle.BackgroundColor3 = Color3.fromRGB(50, 150, 255)
+            toggle.Text = name .. ": ON"
+            toggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+        else
+            toggle.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
+            toggle.Text = name .. ": OFF"
+            toggle.TextColor3 = Color3.fromRGB(200, 200, 200)
+        end
+    end)
+    
+    return toggle, function() return active end
+end
+
+-- Shiny/Misprint toggles
+local shinyToggle, getShiny = createToggle("Shiny", UDim2.new(0, 5, 0, 100), filterFrame)
+local misprintToggle, getMisprint = createToggle("Misprint", UDim2.new(0.52, 0, 0, 100), filterFrame)
+
+-- Hidden Trait/Gender toggles
+local hiddenTraitToggle, getHiddenTrait = createToggle("Hidden Trait", UDim2.new(0, 5, 0, 135), filterFrame)
+local genderLabel = Instance.new("TextLabel")
+genderLabel.Size = UDim2.new(0.48, 0, 0, 28)
+genderLabel.Position = UDim2.new(0.52, 0, 0, 135)
+genderLabel.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
+genderLabel.Text = "Gender: Any"
+genderLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+genderLabel.Font = Enum.Font.Gotham
+genderLabel.TextSize = 10
+genderLabel.BorderSizePixel = 0
+genderLabel.Parent = filterFrame
+
+local genderCorner = Instance.new("UICorner")
+genderCorner.CornerRadius = UDim.new(0, 6)
+genderCorner.Parent = genderLabel
+
+local genderMode = "Any"
+genderLabel.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        if genderMode == "Any" then
+            genderMode = "Male"
+            genderLabel.Text = "Gender: ♂ Male"
+            genderLabel.BackgroundColor3 = Color3.fromRGB(100, 150, 255)
+        elseif genderMode == "Male" then
+            genderMode = "Female"
+            genderLabel.Text = "Gender: ♀ Female"
+            genderLabel.BackgroundColor3 = Color3.fromRGB(255, 100, 150)
+        else
+            genderMode = "Any"
+            genderLabel.Text = "Gender: Any"
+            genderLabel.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
+        end
+    end
+end)
+
+-- Min Stars Slider
+local starsLabel = Instance.new("TextLabel")
+starsLabel.Size = UDim2.new(1, -10, 0, 20)
+starsLabel.Position = UDim2.new(0, 5, 0, 170)
+starsLabel.BackgroundTransparency = 1
+starsLabel.Text = "Minimum Stars: 0"
+starsLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+starsLabel.Font = Enum.Font.Gotham
+starsLabel.TextSize = 11
+starsLabel.TextXAlignment = Enum.TextXAlignment.Left
+starsLabel.Parent = filterFrame
+
+local starsSlider = Instance.new("Frame")
+starsSlider.Size = UDim2.new(1, -20, 0, 6)
+starsSlider.Position = UDim2.new(0, 10, 0, 195)
+starsSlider.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
+starsSlider.BorderSizePixel = 0
+starsSlider.Parent = filterFrame
+
+local starsSliderCorner = Instance.new("UICorner")
+starsSliderCorner.CornerRadius = UDim.new(1, 0)
+starsSliderCorner.Parent = starsSlider
+
+local starsBtn = Instance.new("TextButton")
+starsBtn.Size = UDim2.new(0, 20, 0, 20)
+starsBtn.Position = UDim2.new(0, -10, 0.5, -10)
+starsBtn.BackgroundColor3 = Color3.fromRGB(255, 215, 0)
+starsBtn.Text = ""
+starsBtn.BorderSizePixel = 0
+starsBtn.Parent = starsSlider
+
+local starsBtnCorner = Instance.new("UICorner")
+starsBtnCorner.CornerRadius = UDim.new(1, 0)
+starsBtnCorner.Parent = starsBtn
+
+local minStars = 0
+local draggingStars = false
+
+starsBtn.MouseButton1Down:Connect(function()
+    draggingStars = true
+end)
+
+game:GetService("UserInputService").InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        draggingStars = false
+    end
+end)
+
+RunService.RenderStepped:Connect(function()
+    if draggingStars then
+        local mouse = player:GetMouse()
+        local relativeX = math.clamp(mouse.X - starsSlider.AbsolutePosition.X, 0, starsSlider.AbsoluteSize.X)
+        local percent = relativeX / starsSlider.AbsoluteSize.X
+        starsBtn.Position = UDim2.new(percent, -10, 0.5, -10)
+        minStars = math.floor(percent * 5)
+        starsLabel.Text = "Minimum Stars: " .. minStars .. " ⭐"
+    end
+end)
+
+-- IV Range
+local ivLabel = Instance.new("TextLabel")
+ivLabel.Size = UDim2.new(1, -10, 0, 20)
+ivLabel.Position = UDim2.new(0, 5, 0, 210)
+ivLabel.BackgroundTransparency = 1
+ivLabel.Text = "Min IV Percentage: 0%"
+ivLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+ivLabel.Font = Enum.Font.Gotham
+ivLabel.TextSize = 11
+ivLabel.TextXAlignment = Enum.TextXAlignment.Left
+ivLabel.Parent = filterFrame
+
+local ivSlider = Instance.new("Frame")
+ivSlider.Size = UDim2.new(1, -20, 0, 6)
+ivSlider.Position = UDim2.new(0, 10, 0, 235)
+ivSlider.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
+ivSlider.BorderSizePixel = 0
+ivSlider.Parent = filterFrame
+
+local ivSliderCorner = Instance.new("UICorner")
+ivSliderCorner.CornerRadius = UDim.new(1, 0)
+ivSliderCorner.Parent = ivSlider
+
+local ivBtn = Instance.new("TextButton")
+ivBtn.Size = UDim2.new(0, 20, 0, 20)
+ivBtn.Position = UDim2.new(0, -10, 0.5, -10)
+ivBtn.BackgroundColor3 = Color3.fromRGB(150, 255, 150)
+ivBtn.Text = ""
+ivBtn.BorderSizePixel = 0
+ivBtn.Parent = ivSlider
+
+local ivBtnCorner = Instance.new("UICorner")
+ivBtnCorner.CornerRadius = UDim.new(1, 0)
+ivBtnCorner.Parent = ivBtn
+
+local minIV = 0
+local draggingIV = false
+
+ivBtn.MouseButton1Down:Connect(function()
+    draggingIV = true
+end)
+
+game:GetService("UserInputService").InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        draggingIV = false
+    end
+end)
+
+RunService.RenderStepped:Connect(function()
+    if draggingIV then
+        local mouse = player:GetMouse()
+        local relativeX = math.clamp(mouse.X - ivSlider.AbsolutePosition.X, 0, ivSlider.AbsoluteSize.X)
+        local percent = relativeX / ivSlider.AbsoluteSize.X
+        ivBtn.Position = UDim2.new(percent, -10, 0.5, -10)
+        minIV = math.floor(percent * 100)
+        ivLabel.Text = "Min IV Percentage: " .. minIV .. "%"
+    end
+end)
+
+-- Info text
+local infoText = Instance.new("TextLabel")
+infoText.Size = UDim2.new(1, -10, 0, 60)
+infoText.Position = UDim2.new(0, 5, 0, 255)
+infoText.BackgroundTransparency = 1
+infoText.Text = "ℹ️ Chain Logic:\n• Defeats target species to build chain\n• Runs from other species\n• Stops when target with filters is found"
+infoText.TextColor3 = Color3.fromRGB(180, 180, 180)
+infoText.Font = Enum.Font.Gotham
+infoText.TextSize = 9
+infoText.TextWrapped = true
+infoText.TextXAlignment = Enum.TextXAlignment.Left
+infoText.TextYAlignment = Enum.TextYAlignment.Top
+infoText.Parent = filterFrame
+
+-- Control Buttons
+local startBtn = Instance.new("TextButton")
+startBtn.Size = UDim2.new(0.48, 0, 0, 45)
+startBtn.Position = UDim2.new(0, 10, 1, -55)
+startBtn.BackgroundColor3 = Color3.fromRGB(50, 200, 100)
+startBtn.Text = "▶️ Start Hunt"
+startBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+startBtn.Font = Enum.Font.GothamBold
+startBtn.TextSize = 14
+startBtn.BorderSizePixel = 0
+startBtn.Parent = main
+
+local startCorner = Instance.new("UICorner")
+startCorner.CornerRadius = UDim.new(0, 8)
+startCorner.Parent = startBtn
+
+local resetBtn = Instance.new("TextButton")
+resetBtn.Size = UDim2.new(0.48, 0, 0, 45)
+resetBtn.Position = UDim2.new(0.52, 0, 1, -55)
+resetBtn.BackgroundColor3 = Color3.fromRGB(255, 150, 50)
+resetBtn.Text = "🔄 Reset Chain"
+resetBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+resetBtn.Font = Enum.Font.GothamBold
+resetBtn.TextSize = 14
+resetBtn.BorderSizePixel = 0
+resetBtn.Parent = main
+
+local resetCorner = Instance.new("UICorner")
+resetCorner.CornerRadius = UDim.new(0, 8)
+resetCorner.Parent = resetBtn
+
+-- Safe parent assignment
+pcall(function()
+    if gethui then
+        gui.Parent = gethui()
+    elseif syn and syn.protect_gui then
+        syn.protect_gui(gui)
+        gui.Parent = player.PlayerGui
+    else
+        gui.Parent = game:GetService("CoreGui")
+    end
+end)
+
+-- Helper Functions
+local function getCurrentZone()
+    local workspace = game:GetService("Workspace")
+    for _, obj in ipairs(workspace:GetChildren()) do
+        local name = obj.Name
+        if name:match("^%d%d%d_") or zoneEncounters[name] then
+            return name
+        end
+    end
+    return nil
+end
+
+local function calculateIVPercentage(ivs)
+    if type(ivs) ~= "table" then return 0 end
+    local total, count = 0, 0
+    for _, iv in pairs(ivs) do
+        if type(iv) == "number" then
+            total = total + iv
+            count = count + 1
+        end
+    end
+    return count > 0 and math.floor((total / (count * 40)) * 100) or 0
+end
+
+local function checkDoodleMatch(data)
+    local targetSpecies = speciesInput.Text:lower()
+    if targetSpecies == "" then return false end
+    
+    local doodleName = (data.Name or data.RealName or data.Species or ""):lower()
+    if not doodleName:find(targetSpecies) then return false end
+    
+    -- Check filters
+    if getShiny() and not data.Shiny then return false end
+    if getMisprint() and not (data.Color and data.Color ~= "Normal") then return false end
+    if getHiddenTrait() and not data.HiddenTrait then return false end
+    
+    if genderMode ~= "Any" then
+        local gender = tostring(data.Gender or "")
+        if genderMode == "Male" and gender ~= "Male" then return false end
+        if genderMode == "Female" and gender ~= "Female" then return false end
+    end
+    
+    local stars = tonumber(data.Star or 0)
+    if stars < minStars then return false end
+    
+    local ivPercent = calculateIVPercentage(data.IVs or data.ivs)
+    if ivPercent < minIV then return false end
+    
+    return true
+end
+
+local function isTargetSpecies(data)
+    local targetSpecies = speciesInput.Text:lower()
+    if targetSpecies == "" then return false end
+    local doodleName = (data.Name or data.RealName or data.Species or ""):lower()
+    return doodleName:find(targetSpecies) ~= nil
+end
+
+local function triggerEncounter()
+    local zone = config.currentZone or getCurrentZone()
+    if not zone or not zoneEncounters[zone] then return false end
+    
+    pcall(function()
+        dudeWhyld:FireServer(zone, zoneEncounters[zone])
+    end)
+    
+    return true
+end
+
+-- Battle Hook
+startBattle.OnClientEvent:Connect(function(battleData)
+    if not getgenv().ChainHunter.Active then return end
+    if type(battleData) ~= "table" then return end
+    
+    local wildDoodle = battleData.Player2Party and battleData.Player2Party[1]
+    if not wildDoodle or type(wildDoodle) ~= "table" then return end
+    
+    config.lastDoodleData = wildDoodle
+    getgenv().ChainHunter.Encounters = getgenv().ChainHunter.Encounters + 1
+    encounterLabel.Text = "Encounters: " .. getgenv().ChainHunter.Encounters
+    
+    local doodleName = wildDoodle.Name or wildDoodle.RealName or "Unknown"
+    
+    -- Check if it's the target species
+    if isTargetSpecies(wildDoodle) then
+        -- Check if it matches all filters
+        if checkDoodleMatch(wildDoodle) then
+            getgenv().ChainHunter.Active = false
+            config.foundTarget = true
+            statusLabel.Text = "Status: 🎉 TARGET FOUND!"
+            statusLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
+            actionLabel.Text = "✅ Found matching " .. doodleName .. "!"
+            actionLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+            startBtn.Text = "▶️ Start Hunt"
+            startBtn.BackgroundColor3 = Color3.fromRGB(50, 200, 100)
+            
+            -- TODO: Auto-catch or alert player
+            return
+        else
+            -- Target species but doesn't match filters - defeat for chain
+            getgenv().ChainHunter.Chain = getgenv().ChainHunter.Chain + 1
+            chainLabel.Text = "Chain: " .. getgenv().ChainHunter.Chain .. " 🔗"
+            actionLabel.Text = "⚔️ Defeating " .. doodleName .. " (chain)"
+            actionLabel.TextColor3 = Color3.fromRGB(255, 150, 100)
+            
+            -- TODO: Auto-defeat logic
+        end
+    else
+        -- Different species - run away to preserve chain
+        actionLabel.Text = "🏃 Running from " .. doodleName
+        actionLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
+        
+        -- TODO: Auto-run logic
+    end
+end)
+
+-- Start/Stop Button
+startBtn.MouseButton1Click:Connect(function()
+    if speciesInput.Text == "" then
+        actionLabel.Text = "❌ Please enter a target species!"
+        actionLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+        return
+    end
+    
+    getgenv().ChainHunter.Active = not getgenv().ChainHunter.Active
+    
+    if getgenv().ChainHunter.Active then
+        config.foundTarget = false
+        statusLabel.Text = "Status: 🔍 Hunting..."
+        statusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+        targetLabel.Text = "Target: " .. speciesInput.Text
+        startBtn.Text = "⏸️ Stop Hunt"
+        startBtn.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+        actionLabel.Text = "Starting hunt..."
+    else
+        statusLabel.Text = "Status: ⏸️ Idle"
+        statusLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
+        startBtn.Text = "▶️ Start Hunt"
+        startBtn.BackgroundColor3 = Color3.fromRGB(50, 200, 100)
+        actionLabel.Text = "Hunt stopped"
+    end
+end)
+
+-- Reset Button
+resetBtn.MouseButton1Click:Connect(function()
+    getgenv().ChainHunter.Chain = 0
+    getgenv().ChainHunter.Encounters = 0
+    chainLabel.Text = "Chain: 0"
+    encounterLabel.Text = "Encounters: 0"
+    actionLabel.Text = "Chain reset!"
+    config.foundTarget = false
+end)
+
+-- Zone detection hook
+local oldNamecall
+oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+    local method = getnamecallmethod()
+    local args = {...}
+    
+    if (self.Name == "RequestChunk" or self.Name == "DudeWhyld") and method:find("Server") then
+        if #args >= 1 then
+            config.currentZone = tostring(args[1])
+            zoneLabel.Text = "Zone: " .. config.currentZone
+        end
+    end
+    
+    return oldNamecall(self, ...)
+end)
+
+-- Main hunting loop
+task.spawn(function()
+    task.wait(2)
+    config.currentZone = getCurrentZone()
+    if config.currentZone then
+        zone
