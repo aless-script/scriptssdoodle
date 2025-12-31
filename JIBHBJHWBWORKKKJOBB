@@ -4,11 +4,8 @@
 -- Safety checks
 if not game or not game.GetService then return end
 
--- Replaced getgenv() with _G for compatibility
-local env = _G
-
--- Initialize State
-env.AutoEncounter = {
+-- Initialize _G.AutoEncounter first before using it
+_G.AutoEncounter = _G.AutoEncounter or {
     Active = false,
     ChainMode = false,
     CurrentZone = nil,
@@ -18,7 +15,7 @@ env.AutoEncounter = {
         Shiny = false,
         Misprint = false,
         HiddenTrait = false,
-        Gender = "Any", -- Any, Male, Female
+        Gender = "Any",
         MinStars = 0,
         MinIV = 0,
         MoveName = "Scratch"
@@ -29,13 +26,15 @@ env.AutoEncounter = {
     }
 }
 
+-- Use local reference instead of creating new env variable
+local env = _G
+
 local player = game:GetService("Players").LocalPlayer
 local remotes = player:WaitForChild("Remotes", 10)
 if not remotes then return end
 local dudeWhyld = remotes:WaitForChild("DudeWhyld", 5)
 local startBattle = remotes:WaitForChild("StartBattle", 5)
 
--- Replaced getsenv check with _G only
 -- Attempt to get Client Table for Smart Battle
 local Client = nil
 task.spawn(function()
@@ -228,7 +227,6 @@ moveInput.TextSize = 12
 moveInput.Parent = controlFrame
 Instance.new("UICorner", moveInput).CornerRadius = UDim.new(0, 6)
 moveInput:GetPropertyChangedSignal("Text"):Connect(function() env.AutoEncounter.Filters.MoveName = moveInput.Text end)
-
 
 -- Start/Stop
 local toggleBtn = Instance.new("TextButton")
