@@ -1,6 +1,18 @@
 -- Intelligent Doodle Chain Hunter
 -- Combines auto-encountering with smart filtering and chain management
 
+-- Safety checks for exploit functions
+if not game or not game.GetService then
+    warn("Script must be run in a Roblox executor")
+    return
+end
+
+-- Initialize global table safely
+if not getgenv then
+    warn("getgenv() not available - script may not work properly")
+    return
+end
+
 getgenv().ChainHunter = {
     Active = false,
     Target = nil,
@@ -11,9 +23,22 @@ getgenv().ChainHunter = {
 
 local player = game:GetService("Players").LocalPlayer
 local RunService = game:GetService("RunService")
-local remotes = player:WaitForChild("Remotes")
-local dudeWhyld = remotes:WaitForChild("DudeWhyld")
-local startBattle = remotes:WaitForChild("StartBattle")
+local UserInputService = game:GetService("UserInputService")
+
+-- Wait for remotes with timeout
+local remotes = player:WaitForChild("Remotes", 10)
+if not remotes then
+    warn("Could not find Remotes folder")
+    return
+end
+
+local dudeWhyld = remotes:WaitForChild("DudeWhyld", 5)
+local startBattle = remotes:WaitForChild("StartBattle", 5)
+
+if not dudeWhyld or not startBattle then
+    warn("Could not find required remotes")
+    return
+end
 
 -- Configuration
 local config = {
@@ -332,7 +357,7 @@ starsBtn.MouseButton1Down:Connect(function()
     draggingStars = true
 end)
 
-game:GetService("UserInputService").InputEnded:Connect(function(input)
+UserInputService.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
         draggingStars = false
     end
@@ -391,7 +416,7 @@ ivBtn.MouseButton1Down:Connect(function()
     draggingIV = true
 end)
 
-game:GetService("UserInputService").InputEnded:Connect(function(input)
+UserInputService.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
         draggingIV = false
     end
@@ -454,16 +479,24 @@ resetCorner.CornerRadius = UDim.new(0, 8)
 resetCorner.Parent = resetBtn
 
 -- Safe parent assignment
-pcall(function()
-    if gethui then
-        gui.Parent = gethui()
-    elseif syn and syn.protect_gui then
-        syn.protect_gui(gui)
+local function safeParent()
+    local success = pcall(function()
+        if gethui then
+            gui.Parent = gethui()
+        elseif syn and syn.protect_gui then
+            syn.protect_gui(gui)
+            gui.Parent = player.PlayerGui
+        else
+            gui.Parent = game:GetService("CoreGui")
+        end
+    end)
+    
+    if not success then
         gui.Parent = player.PlayerGui
-    else
-        gui.Parent = game:GetService("CoreGui")
     end
-end)
+end
+
+safeParent()
 
 -- Helper Functions
 local function getCurrentZone()
@@ -527,11 +560,11 @@ local function triggerEncounter()
     local zone = config.currentZone or getCurrentZone()
     if not zone or not zoneEncounters[zone] then return false end
     
-    pcall(function()
+    local success = pcall(function()
         dudeWhyld:FireServer(zone, zoneEncounters[zone])
     end)
     
-    return true
+    return success
 end
 
 -- Battle Hook
@@ -560,8 +593,6 @@ startBattle.OnClientEvent:Connect(function(battleData)
             actionLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
             startBtn.Text = "▶️ Start Hunt"
             startBtn.BackgroundColor3 = Color3.fromRGB(50, 200, 100)
-            
-            -- TODO: Auto-catch or alert player
             return
         else
             -- Target species but doesn't match filters - defeat for chain
@@ -569,15 +600,11 @@ startBattle.OnClientEvent:Connect(function(battleData)
             chainLabel.Text = "Chain: " .. getgenv().ChainHunter.Chain .. " 🔗"
             actionLabel.Text = "⚔️ Defeating " .. doodleName .. " (chain)"
             actionLabel.TextColor3 = Color3.fromRGB(255, 150, 100)
-            
-            -- TODO: Auto-defeat logic
         end
     else
         -- Different species - run away to preserve chain
         actionLabel.Text = "🏃 Running from " .. doodleName
         actionLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
-        
-        -- TODO: Auto-run logic
     end
 end)
 
@@ -618,25 +645,5 @@ resetBtn.MouseButton1Click:Connect(function()
     config.foundTarget = false
 end)
 
--- Zone detection hook
-local oldNamecall
-oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-    local method = getnamecallmethod()
-    local args = {...}
-    
-    if (self.Name == "RequestChunk" or self.Name == "DudeWhyld") and method:find("Server") then
-        if #args >= 1 then
-            config.currentZone = tostring(args[1])
-            zoneLabel.Text = "Zone: " .. config.currentZone
-        end
-    end
-    
-    return oldNamecall(self, ...)
-end)
-
--- Main hunting loop
-task.spawn(function()
-    task.wait(2)
-    config.currentZone = getCurrentZone()
-    if config.currentZone then
-        zone
+-- Zone detection hook (with safety checks)
+if hookmet
