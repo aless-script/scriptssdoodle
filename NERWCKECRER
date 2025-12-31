@@ -315,34 +315,37 @@ end)
 
 -- Hook into game remotes to capture doodle data
 local function hookDoodleData()
-    -- Hook via namecall metamethod (catches all remote calls)
     local oldNamecall
     oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
         local method = getnamecallmethod()
         local args = {...}
         
-        -- Look for any remote that passes table data (potential doodle info)
-        if (method == "FireServer" or method == "InvokeServer") then
+        if method == "FireServer" or method == "InvokeServer" then
             local success, remoteName = pcall(function() return self.Name end)
             
             if success and remoteName then
                 local lowerName = remoteName:lower()
                 
-                -- Check for encounter/battle/wild doodle remotes (NOT PostToChat)
-                if lowerName:find("encounter") or lowerName:find("battle") or lowerName:find("wild") or 
-                   lowerName:find("spawn") or lowerName:find("catch") or lowerName:find("doodle") then
+                -- Look for encounter/battle/wild remotes
+                if lowerName:find("encounter") or lowerName:find("battle") or 
+                   lowerName:find("wild") or lowerName:find("spawn") or 
+                   lowerName:find("catch") or lowerName:find("doodle") then
                     
-                    -- Print remote name for debugging
-                    print("[Doodle Viewer] Detected remote: " .. remoteName)
+                    print("[Doodle Viewer] 🎯 Detected: " .. remoteName)
                     
+                    -- Check all arguments for table data
                     for i, arg in ipairs(args) do
                         if type(arg) == "table" then
-                            print("[Doodle Viewer] Found table data in argument " .. i)
-                            -- Print table structure for debugging
-                            print("[Doodle Viewer] Table contents:")
+                            print("[Doodle Viewer] 📦 Table found in arg #" .. i)
+                            print("[Doodle Viewer] 📋 Contents:")
                             for k, v in pairs(arg) do
-                                print("  " .. tostring(k) .. " = " .. tostring(v))
+                                if type(v) ~= "table" then
+                                    print("    " .. tostring(k) .. " = " .. tostring(v))
+                                else
+                                    print("    " .. tostring(k) .. " = [table]")
+                                end
                             end
+                            
                             task.spawn(function()
                                 displayDoodleData(arg)
                             end)
@@ -356,15 +359,14 @@ local function hookDoodleData()
         return oldNamecall(self, ...)
     end))
     
-    print("[Doodle Viewer] Hooks installed successfully!")
-    print("[Doodle Viewer] Listening for encounter remotes...")
+    print("[Doodle Viewer] ✅ Hooks active!")
+    print("[Doodle Viewer] 👀 Watching for encounter remotes...")
 end
 
 -- Initialize
 task.spawn(function()
-    task.wait(2)
+    task.wait(1)
     hookDoodleData()
-    print("[Doodle Viewer] Loaded! GUI will display when doodles are encountered.")
 end)
 
 -- Manual test function
@@ -372,17 +374,25 @@ _G.testDoodleViewer = function(data)
     displayDoodleData(data)
 end
 
+_G.showDoodleViewer = function()
+    gui.Enabled = true
+end
+
+_G.hideDoodleViewer = function()
+    gui.Enabled = false
+end
+
 print([[
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  DOODLE STAT VIEWER LOADED
+  🔍 DOODLE STAT VIEWER
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-The GUI will automatically show
-doodle stats when you encounter them!
+✅ Loaded! Listening for encounters
+📊 GUI will show when doodles spawn
+🔧 Check console for remote names
 
-Test with: _G.testDoodleViewer({
-    Name = "TestDoodle",
-    Level = 50,
-    Stats = {HP = 100, Attack = 50}
-})
+Commands:
+  _G.testDoodleViewer({data})
+  _G.showDoodleViewer()
+  _G.hideDoodleViewer()
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ]])
