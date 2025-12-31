@@ -108,17 +108,17 @@ local copyCorner = Instance.new("UICorner")
 copyCorner.CornerRadius = UDim.new(0, 6)
 copyCorner.Parent = copyBtn
 
--- Try CoreGui first, fallback to PlayerGui if it fails
-local parentSuccess = pcall(function()
-    gui.Parent = game:GetService("CoreGui")
+-- Safe parent assignment
+pcall(function()
+    if gethui then
+        gui.Parent = gethui()
+    elseif syn and syn.protect_gui then
+        syn.protect_gui(gui)
+        gui.Parent = player.PlayerGui
+    else
+        gui.Parent = player.PlayerGui
+    end
 end)
-
-if not parentSuccess then
-    gui.Parent = player:WaitForChild("PlayerGui")
-    print("[Doodle Viewer] Using PlayerGui (GUI will reset on death)")
-else
-    print("[Doodle Viewer] Using CoreGui (GUI persists)")
-end
 
 -- Helper function to create stat display
 local function createStatLabel(text, value, color)
@@ -326,7 +326,8 @@ end)
 -- Hook into game remotes to capture doodle data
 local function hookDoodleData()
     local oldNamecall
-    oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+    
+    local hookFunc = function(self, ...)
         local method = getnamecallmethod()
         local args = {...}
         
@@ -367,7 +368,25 @@ local function hookDoodleData()
         end
         
         return oldNamecall(self, ...)
-    end))
+    end
+    
+    -- Try different hooking methods based on executor
+    if hookmetamethod then
+        if newcclosure then
+            oldNamecall = hookmetamethod(game, "__namecall", newcclosure(hookFunc))
+        else
+            oldNamecall = hookmetamethod(game, "__namecall", hookFunc)
+        end
+    elseif hookfunction then
+        local mt = getrawmetatable(game)
+        setreadonly(mt, false)
+        oldNamecall = mt.__namecall
+        mt.__namecall = hookFunc
+        setreadonly(mt, true)
+    else
+        warn("[Doodle Viewer] ⚠️ No hook method available!")
+        return
+    end
     
     print("[Doodle Viewer] ✅ Hooks active!")
     print("[Doodle Viewer] 👀 Watching for encounter remotes...")
