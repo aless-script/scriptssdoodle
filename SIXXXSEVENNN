@@ -4,11 +4,20 @@
 -- Safety checks
 if not game or not game.GetService then return end
 
-local function getEnv()
-    return (getgenv and getgenv()) or _G
+-- Universal Environment Support (Fix for 'attempt to call a nil value')
+local env = nil
+if getgenv then
+    env = getgenv()
+else
+    env = _G
 end
 
-local env = getEnv()
+-- Ensure env table exists
+if not env then
+    env = {} 
+    _G = env
+end
+
 env.AutoEncounter = {
     Active = false,
     ChainMode = false,
@@ -293,4 +302,6 @@ end)
 
 -- Safe Parent
 local success = pcall(function()
-    gui.Parent = game:GetService
+    gui.Parent = game:GetService("CoreGui")
+end)
+if not success then gui.Parent = player.PlayerGui end
