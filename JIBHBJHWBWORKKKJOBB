@@ -299,6 +299,16 @@ end
 
 -- Improved battle action handler with better timing and structure
 local function executeBattleAction(myDoodle, wildDoodle, actionType)
+    -- Fire Iamloops1InitialReady remote first before battle actions
+    local initialReady = remotes:FindFirstChild("Iamloops1InitialReady")
+    if initialReady then
+        pcall(function()
+            initialReady:FireServer()
+        end)
+    end
+    
+    task.wait(0.5) -- Give time for ready state
+    
     local battleAction = remotes:FindFirstChild("BattleAction")
     if not battleAction then 
         warn("[v0] BattleAction remote not found")
@@ -306,14 +316,16 @@ local function executeBattleAction(myDoodle, wildDoodle, actionType)
     end
     
     if actionType == "run" then
-        -- Run away from battle
-        local runArgs = {{
+        -- Fixed run args structure to match game format
+        local runArgs = {
             {
-                Target = "RunAway",
-                ActionType = "Run",
-                User = myDoodle.ID
+                {
+                    Target = "RunAway",
+                    ActionType = "Run",
+                    User = myDoodle.ID
+                }
             }
-        }}
+        }
         
         pcall(function()
             battleAction:FireServer(unpack(runArgs))
@@ -350,14 +362,17 @@ local function executeBattleAction(myDoodle, wildDoodle, actionType)
             end
         end
         
-        local attackArgs = {{
+        -- Fixed attack args structure to match game format
+        local attackArgs = {
             {
-                Target = wildDoodle.ID,
-                ActionType = "Attack",
-                Action = selectedMove,
-                User = myDoodle.ID
+                {
+                    Target = wildDoodle.ID,
+                    ActionType = "Attack",
+                    Action = selectedMove,
+                    User = myDoodle.ID
+                }
             }
-        }}
+        }
         
         pcall(function()
             battleAction:FireServer(unpack(attackArgs))
