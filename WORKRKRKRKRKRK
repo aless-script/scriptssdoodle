@@ -1,19 +1,31 @@
--- Intelligent Doodle Chain Hunter
--- Combines auto-encountering with smart filtering and chain management
+-- Intelligent Doodle Chain Hunter - Compatible Version
+-- Checks for required functions before running
 
--- Safety checks for exploit functions
-if not game or not game.GetService then
-    warn("Script must be run in a Roblox executor")
+-- Check if we're in a valid Roblox environment
+local success, result = pcall(function()
+    return game:GetService("Players")
+end)
+
+if not success then
+    error("This script must be run in a Roblox executor")
+    return
+end
+
+-- Create getgenv fallback if it doesn't exist
+local env
+if getgenv then
+    env = getgenv()
+elseif _G then
+    env = _G
+elseif shared then
+    env = shared
+else
+    error("No global environment available - executor not compatible")
     return
 end
 
 -- Initialize global table safely
-if not getgenv then
-    warn("getgenv() not available - script may not work properly")
-    return
-end
-
-getgenv().ChainHunter = {
+env.ChainHunter = env.ChainHunter or {
     Active = false,
     Target = nil,
     Chain = 0,
@@ -21,22 +33,32 @@ getgenv().ChainHunter = {
     Filters = {}
 }
 
-local player = game:GetService("Players").LocalPlayer
+local ChainHunter = env.ChainHunter
+
+-- Get services
+local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local CoreGui = game:GetService("CoreGui")
+
+local player = Players.LocalPlayer
+if not player then
+    error("LocalPlayer not found")
+    return
+end
 
 -- Wait for remotes with timeout
 local remotes = player:WaitForChild("Remotes", 10)
 if not remotes then
-    warn("Could not find Remotes folder")
+    warn("Could not find Remotes folder - are you in the game?")
     return
 end
 
-local dudeWhyld = remotes:WaitForChild("DudeWhyld", 5)
-local startBattle = remotes:WaitForChild("StartBattle", 5)
+local dudeWhyld = remotes:FindFirstChild("DudeWhyld")
+local startBattle = remotes:FindFirstChild("StartBattle")
 
 if not dudeWhyld or not startBattle then
-    warn("Could not find required remotes")
+    warn("Could not find required remotes - game may have updated")
     return
 end
 
@@ -108,7 +130,7 @@ closeCorner.Parent = close
 
 close.MouseButton1Click:Connect(function()
     gui:Destroy()
-    getgenv().ChainHunter.Active = false
+    ChainHunter.Active = false
 end)
 
 -- Status Frame
@@ -480,18 +502,35 @@ resetCorner.Parent = resetBtn
 
 -- Safe parent assignment
 local function safeParent()
-    local success = pcall(function()
-        if gethui then
+    local worked = false
+    
+    -- Try gethui
+    if gethui and not worked then
+        pcall(function()
             gui.Parent = gethui()
-        elseif syn and syn.protect_gui then
+            worked = true
+        end)
+    end
+    
+    -- Try syn.protect_gui
+    if syn and syn.protect_gui and not worked then
+        pcall(function()
             syn.protect_gui(gui)
             gui.Parent = player.PlayerGui
-        else
-            gui.Parent = game:GetService("CoreGui")
-        end
-    end)
+            worked = true
+        end)
+    end
     
-    if not success then
+    -- Try CoreGui
+    if not worked then
+        pcall(function()
+            gui.Parent = CoreGui
+            worked = true
+        end)
+    end
+    
+    -- Final fallback
+    if not worked then
         gui.Parent = player.PlayerGui
     end
 end
@@ -569,15 +608,15 @@ end
 
 -- Battle Hook
 startBattle.OnClientEvent:Connect(function(battleData)
-    if not getgenv().ChainHunter.Active then return end
+    if not ChainHunter.Active then return end
     if type(battleData) ~= "table" then return end
     
     local wildDoodle = battleData.Player2Party and battleData.Player2Party[1]
     if not wildDoodle or type(wildDoodle) ~= "table" then return end
     
     config.lastDoodleData = wildDoodle
-    getgenv().ChainHunter.Encounters = getgenv().ChainHunter.Encounters + 1
-    encounterLabel.Text = "Encounters: " .. getgenv().ChainHunter.Encounters
+    ChainHunter.Encounters = ChainHunter.Encounters + 1
+    encounterLabel.Text = "Encounters: " .. ChainHunter.Encounters
     
     local doodleName = wildDoodle.Name or wildDoodle.RealName or "Unknown"
     
@@ -585,7 +624,7 @@ startBattle.OnClientEvent:Connect(function(battleData)
     if isTargetSpecies(wildDoodle) then
         -- Check if it matches all filters
         if checkDoodleMatch(wildDoodle) then
-            getgenv().ChainHunter.Active = false
+            ChainHunter.Active = false
             config.foundTarget = true
             statusLabel.Text = "Status: 🎉 TARGET FOUND!"
             statusLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
@@ -596,8 +635,8 @@ startBattle.OnClientEvent:Connect(function(battleData)
             return
         else
             -- Target species but doesn't match filters - defeat for chain
-            getgenv().ChainHunter.Chain = getgenv().ChainHunter.Chain + 1
-            chainLabel.Text = "Chain: " .. getgenv().ChainHunter.Chain .. " 🔗"
+            ChainHunter.Chain = ChainHunter.Chain + 1
+            chainLabel.Text = "Chain: " .. ChainHunter.Chain .. " 🔗"
             actionLabel.Text = "⚔️ Defeating " .. doodleName .. " (chain)"
             actionLabel.TextColor3 = Color3.fromRGB(255, 150, 100)
         end
@@ -616,9 +655,9 @@ startBtn.MouseButton1Click:Connect(function()
         return
     end
     
-    getgenv().ChainHunter.Active = not getgenv().ChainHunter.Active
+    ChainHunter.Active = not ChainHunter.Active
     
-    if getgenv().ChainHunter.Active then
+    if ChainHunter.Active then
         config.foundTarget = false
         statusLabel.Text = "Status: 🔍 Hunting..."
         statusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
@@ -630,20 +669,4 @@ startBtn.MouseButton1Click:Connect(function()
         statusLabel.Text = "Status: ⏸️ Idle"
         statusLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
         startBtn.Text = "▶️ Start Hunt"
-        startBtn.BackgroundColor3 = Color3.fromRGB(50, 200, 100)
-        actionLabel.Text = "Hunt stopped"
-    end
-end)
-
--- Reset Button
-resetBtn.MouseButton1Click:Connect(function()
-    getgenv().ChainHunter.Chain = 0
-    getgenv().ChainHunter.Encounters = 0
-    chainLabel.Text = "Chain: 0"
-    encounterLabel.Text = "Encounters: 0"
-    actionLabel.Text = "Chain reset!"
-    config.foundTarget = false
-end)
-
--- Zone detection hook (with safety checks)
-if hookmet
+        startBtn.BackgroundColor3 = Color3.fromRGB
