@@ -337,8 +337,7 @@ local function displayDoodleData(data)
     end)
     
     if not success then
-        warn("[Doodle Viewer] Error displaying data:", err)
-        statusLabel.Text = "❌ Error displaying data"
+        print("[Doodle Viewer] Error displaying data:", err)
     end
 end
 
@@ -352,103 +351,76 @@ copyBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- Hook into game remotes to capture doodle data
-local function hookDoodleData()
-    local oldNamecall
+-- Hook into DudeWhyld remote
+local function hookDudeWhyldRemote()
+    local remotes = player:WaitForChild("Remotes")
+    local dudeWhyld = remotes:WaitForChild("DudeWhyld")
     
-    local hookFunc = function(self, ...)
-        local method = getnamecallmethod()
+    print("[Doodle Viewer] ✅ Found DudeWhyld remote!")
+    
+    local oldFireServer = dudeWhyld.FireServer
+    
+    dudeWhyld.FireServer = function(self, ...)
         local args = {...}
+        print("[Doodle Viewer] 🎯 DudeWhyld fired with args:", args)
         
-        if method == "FireServer" or method == "InvokeServer" then
-            local success, remoteName = pcall(function() return self.Name end)
+        -- Call original
+        oldFireServer(self, ...)
+        
+        -- Wait a moment for battle data to load, then hook StartBattle
+        task.defer(function()
+            task.wait(0.5)
             
-            if success and remoteName then
-                -- Specifically look for StartBattle remote
-                if remoteName == "StartBattle" then
-                    print("[Doodle Viewer] 🎯 Battle Started!")
-                    
-                    if #args >= 1 and type(args[1]) == "table" then
-                        local battleData = args[1]
+            -- Try to get doodle data from game state or StartBattle remote
+            local function tryGetDoodleData()
+                local remotes = player:FindFirstChild("Remotes")
+                if not remotes then return nil end
+                
+                local startBattle = remotes:FindFirstChild("StartBattle")
+                if not startBattle then return nil end
+                
+                -- Hook StartBattle to capture the doodle data
+                local oldStartBattle = startBattle.OnClientEvent:Connect(function(battleData)
+                    if type(battleData) == "table" then
+                        print("[Doodle Viewer] 📦 Got battle data!")
                         
-                        -- Extract wild doodle from Player2Party (the enemy/wild doodle)
-                        if battleData.Player2Party and type(battleData.Player2Party) == "table" then
-                            print("[Doodle Viewer] 📦 Found wild doodle data!")
-                            
-                            -- Get the first doodle in enemy party
-                            local wildDoodle = battleData.Player2Party[1]
-                            
-                            if wildDoodle then
-                                print("[Doodle Viewer] 📋 Wild Doodle Info:")
-                                print("    Name: " .. tostring(wildDoodle.Name or wildDoodle.RealName))
-                                print("    Level: " .. tostring(wildDoodle.Level))
-                                print("    Shiny: " .. tostring(wildDoodle.Shiny))
-                                
-                                -- Use task.defer instead of task.spawn for GUI operations
-                                task.defer(displayDoodleData, wildDoodle)
-                            end
+                        -- Try to extract wild doodle from various possible structures
+                        local wildDoodle = nil
+                        
+                        if battleData.Player2Party and type(battleData.Player2Party) == "table" and battleData.Player2Party[1] then
+                            wildDoodle = battleData.Player2Party[1]
+                        elseif battleData.EnemyParty and type(battleData.EnemyParty) == "table" and battleData.EnemyParty[1] then
+                            wildDoodle = battleData.EnemyParty[1]
+                        elseif battleData.OpponentParty and type(battleData.OpponentParty) == "table" and battleData.OpponentParty[1] then
+                            wildDoodle = battleData.OpponentParty[1]
+                        elseif battleData.Doodle then
+                            wildDoodle = battleData.Doodle
+                        end
+                        
+                        if wildDoodle and type(wildDoodle) == "table" then
+                            print("[Doodle Viewer] 📋 Displaying wild doodle data!")
+                            displayDoodleData(wildDoodle)
+                        else
+                            print("[Doodle Viewer] ⚠️ Could not find doodle in battle data")
+                            statusLabel.Text = "⚠️ Battle started but couldn't find doodle data"
                         end
                     end
-                end
+                end)
                 
-                local lowerName = remoteName:lower()
-                
-                -- Also check other potential remotes
-                if lowerName:find("encounter") or lowerName:find("wild") or 
-                   lowerName:find("spawn") or lowerName:find("catch") then
-                    
-                    print("[Doodle Viewer] 🎯 Detected: " .. remoteName)
-                    
-                    for i, arg in ipairs(args) do
-                        if type(arg) == "table" then
-                            print("[Doodle Viewer] 📦 Table found in arg #" .. i)
-                            -- Use task.defer for GUI operations
-                            task.defer(displayDoodleData, arg)
-                            break
-                        end
-                    end
-                end
+                return true
             end
-        end
-        
-        return oldNamecall(self, ...)
-    end
-    
-    -- Try different hooking methods based on executor
-    local hooked = false
-    
-    if hookmetamethod then
-        pcall(function()
-            if newcclosure then
-                oldNamecall = hookmetamethod(game, "__namecall", newcclosure(hookFunc))
-            else
-                oldNamecall = hookmetamethod(game, "__namecall", hookFunc)
-            end
-            hooked = true
-        end)
-    elseif hookfunction then
-        pcall(function()
-            local mt = getrawmetatable(game)
-            setreadonly(mt, false)
-            oldNamecall = mt.__namecall
-            mt.__namecall = hookFunc
-            setreadonly(mt, true)
-            hooked = true
+            
+            tryGetDoodleData()
         end)
     end
     
-    if hooked then
-        print("[Doodle Viewer] ✅ Hooks active!")
-        print("[Doodle Viewer] 👀 Watching for StartBattle...")
-    else
-        warn("[Doodle Viewer] ⚠️ No hook method available!")
-    end
+    print("[Doodle Viewer] ✅ DudeWhyld hook installed!")
 end
 
 -- Initialize
 task.defer(function()
     task.wait(1)
-    hookDoodleData()
+    hookDudeWhyldRemote()
 end)
 
 -- Manual test function
@@ -470,7 +442,7 @@ print([[
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ✅ Loaded! Listening for encounters
 📊 GUI will show when doodles spawn
-🔧 Check console for remote names
+🔧 Watching DudeWhyld remote
 
 Commands:
   _G.testDoodleViewer({data})
