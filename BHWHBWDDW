@@ -108,7 +108,14 @@ local copyCorner = Instance.new("UICorner")
 copyCorner.CornerRadius = UDim.new(0, 6)
 copyCorner.Parent = copyBtn
 
-gui.Parent = game:GetService("CoreGui")
+-- Try CoreGui first, fallback to PlayerGui if it fails
+local success = pcall(function()
+    gui.Parent = game:GetService("CoreGui")
+end)
+
+if not success then
+    gui.Parent = player:WaitForChild("PlayerGui")
+end
 
 -- Helper function to create stat display
 local function createStatLabel(text, value, color)
