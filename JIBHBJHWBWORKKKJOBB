@@ -4,17 +4,8 @@
 -- Safety checks
 if not game or not game.GetService then return end
 
--- Robust Environment Setup
-local env = nil
-local success, result = pcall(function()
-    return getgenv and getgenv()
-end)
-
-if success and result then
-    env = result
-else
-    env = _G or {}
-end
+-- Replaced getgenv() with _G for compatibility
+local env = _G
 
 -- Initialize State
 env.AutoEncounter = {
@@ -44,6 +35,7 @@ if not remotes then return end
 local dudeWhyld = remotes:WaitForChild("DudeWhyld", 5)
 local startBattle = remotes:WaitForChild("StartBattle", 5)
 
+-- Replaced getsenv check with _G only
 -- Attempt to get Client Table for Smart Battle
 local Client = nil
 task.spawn(function()
@@ -51,7 +43,7 @@ task.spawn(function()
         local playerGui = player:WaitForChild("PlayerGui", 10)
         local gui = playerGui and playerGui:WaitForChild("Gui", 10)
         local clientScript = gui and gui:WaitForChild("Client", 10)
-        if clientScript and getgenv and getsenv then
+        if clientScript and getsenv then
             Client = getsenv(clientScript)
         end
     end)
@@ -250,7 +242,7 @@ toggleBtn.TextSize = 14
 toggleBtn.Parent = controlFrame
 Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(0, 6)
 
-toggleBtn.MouseButton1Click:Connect(function)
+toggleBtn.MouseButton1Click:Connect(function()
     env.AutoEncounter.Active = not env.AutoEncounter.Active
     if env.AutoEncounter.Active then
         toggleBtn.Text = "⏸️ Stop"
