@@ -1,0 +1,56 @@
+local Players = game:GetService("Players")
+local Player = Players.LocalPlayer
+local Client = require(Player.Packer.Client)
+
+-- // Create GUI
+local ScreenGui = Instance.new("ScreenGui", Player.PlayerGui)
+local InfoFrame = Instance.new("Frame", ScreenGui)
+InfoFrame.Size = UDim2.new(0, 250, 0, 120)
+InfoFrame.Position = UDim2.new(0.5, -125, 0.1, 0)
+InfoFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+InfoFrame.Visible = false -- Only shows during battle
+
+local TextLabel = Instance.new("TextLabel", InfoFrame)
+TextLabel.Size = UDim2.new(1, -10, 1, -10)
+TextLabel.Position = UDim2.new(0, 5, 0, 5)
+TextLabel.BackgroundTransparency = 1
+TextLabel.TextColor3 = Color3.new(1, 1, 1)
+TextLabel.TextSize = 18
+TextLabel.Font = Enum.Font.GothamBold
+TextLabel.TextXAlignment = Enum.Font.SourceSans
+TextLabel.Text = "Waiting for encounter..."
+
+-- // Information Logic
+game:GetService("RunService").RenderStepped:Connect(function()
+    if Client.Battle and Client.Battle.CurrentBattle then
+        local Enemy = Client.Battle.CurrentBattle["Player2Party"] and Client.Battle.CurrentBattle["Player2Party"][1]
+        
+        if Enemy then
+            InfoFrame.Visible = true
+            
+            local Name = Enemy.Name or "Unknown"
+            local Stars = Enemy.Star or 0
+            local IsMisprint = Enemy.Shiny and "YES" or "No"
+            local Trait = Enemy.Trait or "None"
+            local Item = Enemy.Item or "None"
+
+            TextLabel.Text = string.format(
+                "--- ENCOUNTER INFO ---\nName: %s\nStars: %d ⭐\nMisprint: %s\nTrait: %s\nItem: %s",
+                Name, Stars, IsMisprint, Trait, Item
+            )
+            
+            -- Change border color for rare finds
+            if Stars >= 5 or Enemy.Shiny then
+                InfoFrame.BorderColor3 = Color3.new(1, 0.8, 0) -- Gold
+                InfoFrame.BorderSizePixel = 3
+            else
+                InfoFrame.BorderColor3 = Color3.new(1, 1, 1)
+                InfoFrame.BorderSizePixel = 1
+            end
+        end
+    else
+        InfoFrame.Visible = false
+    end
+end)
+
+print("Encounter Scanner Loaded. Fight a Doodle to see stats!")
