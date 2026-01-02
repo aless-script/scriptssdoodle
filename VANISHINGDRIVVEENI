@@ -1,0 +1,569 @@
+-- Combined Auto Encounter & Chain Hunter
+-- Using GUI buttons and remotes directly
+
+-- Safety checks
+if not game or not game.GetService then return end
+
+-- Initialize settings
+_G.AutoEncounter = _G.AutoEncounter or {
+    Active = false,
+    ChainMode = false,
+    InBattle = false,
+    Delay = 2,
+    MoveSlot = 1, -- Which move slot to use (1-4)
+    Filters = {
+        Species = "",
+        MinStars = 0,
+        HiddenTrait = false,
+    },
+    Stats = {
+        Encounters = 0,
+        Chain = 0
+    }
+}
+
+local env = _G
+local player = game:GetService("Players").LocalPlayer
+local remotes = player:WaitForChild("Remotes", 10)
+if not remotes then return end
+
+-- Remotes
+local dudeWhyld = remotes:WaitForChild("DudeWhyld", 5)
+local battleReady = remotes:WaitForChild("Iamloops1InitialReady", 5)
+local battleAction = remotes:WaitForChild("BattleAction", 5)
+
+-- GUI References
+local playerGui = player:WaitForChild("PlayerGui", 10)
+local mainGui = playerGui:WaitForChild("MainGui", 10)
+local battleGui = mainGui:WaitForChild("MainBattle", 10)
+local partyGui = mainGui:WaitForChild("PartyUI", 10)
+
+-- Get battle UI elements
+local bottomBar = battleGui:WaitForChild("BottomBar", 5)
+local actionBar = bottomBar:WaitForChild("Actions", 5)
+local frontBox = battleGui:WaitForChild("FrontBox", 5)
+local backBox = battleGui:WaitForChild("BackBox", 5)
+
+-- Zone encounters
+local zoneEncounters = {
+    ["025_Sweetsville"] = "WildGrass",
+    ["033_Academy"] = "WildGrass",
+    ["029_SubwayStation"] = "WildGrass",
+    ["TheCarnival"] = "WildGrass",
+    ["006_Route2"] = "WildGrass",
+    ["007_Lakewood"] = "WildGrass",
+    ["010_Route3"] = "WildGrass",
+    ["013_Route4"] = "WildGrass",
+    ["017_Crossroads"] = "WildGrass",
+    ["018_CrystalCaverns"] = "WildGrass",
+    ["024_Route5"] = "WildGrass",
+}
+
+-- GUI Creation
+local gui = Instance.new("ScreenGui")
+gui.Name = "CompactAutoEncounter"
+gui.ResetOnSpawn = false
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+local main = Instance.new("Frame")
+main.Name = "MainFrame"
+main.Size = UDim2.new(0, 220, 0, 480)
+main.Position = UDim2.new(0.05, 0, 0.5, -240)
+main.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+main.BorderSizePixel = 0
+main.Active = true
+main.Draggable = true
+main.Parent = gui
+
+Instance.new("UICorner", main).CornerRadius = UDim.new(0, 8)
+
+-- Header
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -30, 0, 30)
+title.Position = UDim2.new(0, 10, 0, 0)
+title.BackgroundTransparency = 1
+title.Text = "⚔️ Auto Encounter"
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 14
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = main
+
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0, 25, 0, 25)
+closeBtn.Position = UDim2.new(1, -30, 0, 2.5)
+closeBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+closeBtn.Text = "X"
+closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.Parent = main
+Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 4)
+
+closeBtn.MouseButton1Click:Connect(function()
+    env.AutoEncounter.Active = false
+    gui:Destroy()
+end)
+
+-- Info Display
+local infoFrame = Instance.new("Frame")
+infoFrame.Size = UDim2.new(1, -20, 0, 160)
+infoFrame.Position = UDim2.new(0, 10, 0, 35)
+infoFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+infoFrame.Parent = main
+Instance.new("UICorner", infoFrame).CornerRadius = UDim.new(0, 6)
+
+local function createInfoLine(order, labelText)
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -10, 0, 18)
+    label.Position = UDim2.new(0, 5, 0, (order - 1) * 18 + 5)
+    label.BackgroundTransparency = 1
+    label.Text = labelText .. ": -"
+    label.TextColor3 = Color3.fromRGB(200, 200, 200)
+    label.Font = Enum.Font.Gotham
+    label.TextSize = 11
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = infoFrame
+    return label
+end
+
+local infoLabels = {
+    Name = createInfoLine(1, "Name"),
+    Stars = createInfoLine(2, "Stars"),
+    Trait = createInfoLine(3, "Trait"),
+    Gender = createInfoLine(4, "Gender"),
+    Misprint = createInfoLine(5, "Misprint"),
+    Item = createInfoLine(6, "Item"),
+    Equip = createInfoLine(7, "Equip"),
+    Skin = createInfoLine(8, "Skin"),
+}
+
+-- Controls
+local controlFrame = Instance.new("Frame")
+controlFrame.Size = UDim2.new(1, -20, 0, 200)
+controlFrame.Position = UDim2.new(0, 10, 0, 200)
+controlFrame.BackgroundTransparency = 1
+controlFrame.Parent = main
+
+-- Chain Mode Toggle
+local chainModeBtn = Instance.new("TextButton")
+chainModeBtn.Size = UDim2.new(1, 0, 0, 25)
+chainModeBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
+chainModeBtn.Text = "Chain Mode: OFF"
+chainModeBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+chainModeBtn.Font = Enum.Font.Gotham
+chainModeBtn.TextSize = 12
+chainModeBtn.Parent = controlFrame
+Instance.new("UICorner", chainModeBtn).CornerRadius = UDim.new(0, 6)
+
+chainModeBtn.MouseButton1Click:Connect(function()
+    env.AutoEncounter.ChainMode = not env.AutoEncounter.ChainMode
+    if env.AutoEncounter.ChainMode then
+        chainModeBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 255)
+        chainModeBtn.Text = "Chain Mode: ON"
+        chainModeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    else
+        chainModeBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
+        chainModeBtn.Text = "Chain Mode: OFF"
+        chainModeBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+    end
+end)
+
+-- Target Species Input
+local speciesInput = Instance.new("TextBox")
+speciesInput.Size = UDim2.new(1, 0, 0, 25)
+speciesInput.Position = UDim2.new(0, 0, 0, 30)
+speciesInput.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+speciesInput.Text = ""
+speciesInput.PlaceholderText = "Target Species"
+speciesInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+speciesInput.Font = Enum.Font.Gotham
+speciesInput.TextSize = 12
+speciesInput.Parent = controlFrame
+Instance.new("UICorner", speciesInput).CornerRadius = UDim.new(0, 6)
+speciesInput:GetPropertyChangedSignal("Text"):Connect(function() 
+    env.AutoEncounter.Filters.Species = speciesInput.Text 
+end)
+
+-- Min Stars Input
+local starsInput = Instance.new("TextBox")
+starsInput.Size = UDim2.new(0.48, 0, 0, 25)
+starsInput.Position = UDim2.new(0, 0, 0, 60)
+starsInput.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+starsInput.Text = ""
+starsInput.PlaceholderText = "Min Stars"
+starsInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+starsInput.Font = Enum.Font.Gotham
+starsInput.TextSize = 12
+starsInput.Parent = controlFrame
+Instance.new("UICorner", starsInput).CornerRadius = UDim.new(0, 6)
+starsInput:GetPropertyChangedSignal("Text"):Connect(function() 
+    env.AutoEncounter.Filters.MinStars = tonumber(starsInput.Text) or 0 
+end)
+
+-- Hidden Trait Toggle
+local htBtn = Instance.new("TextButton")
+htBtn.Size = UDim2.new(0.48, 0, 0, 25)
+htBtn.Position = UDim2.new(0.52, 0, 0, 60)
+htBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
+htBtn.Text = "HT: OFF"
+htBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+htBtn.Font = Enum.Font.Gotham
+htBtn.TextSize = 11
+htBtn.Parent = controlFrame
+Instance.new("UICorner", htBtn).CornerRadius = UDim.new(0, 6)
+
+htBtn.MouseButton1Click:Connect(function()
+    env.AutoEncounter.Filters.HiddenTrait = not env.AutoEncounter.Filters.HiddenTrait
+    htBtn.Text = env.AutoEncounter.Filters.HiddenTrait and "HT: ON" or "HT: OFF"
+    htBtn.BackgroundColor3 = env.AutoEncounter.Filters.HiddenTrait and Color3.fromRGB(50, 150, 255) or Color3.fromRGB(60, 60, 65)
+    htBtn.TextColor3 = env.AutoEncounter.Filters.HiddenTrait and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(200, 200, 200)
+end)
+
+-- Move Slot Selector
+local moveSlotLabel = Instance.new("TextLabel")
+moveSlotLabel.Size = UDim2.new(0.5, -5, 0, 25)
+moveSlotLabel.Position = UDim2.new(0, 0, 0, 90)
+moveSlotLabel.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+moveSlotLabel.Text = "Move Slot:"
+moveSlotLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+moveSlotLabel.Font = Enum.Font.Gotham
+moveSlotLabel.TextSize = 12
+moveSlotLabel.Parent = controlFrame
+Instance.new("UICorner", moveSlotLabel).CornerRadius = UDim.new(0, 6)
+
+local moveSlotFrame = Instance.new("Frame")
+moveSlotFrame.Size = UDim2.new(0.5, -5, 0, 25)
+moveSlotFrame.Position = UDim2.new(0.5, 5, 0, 90)
+moveSlotFrame.BackgroundTransparency = 1
+moveSlotFrame.Parent = controlFrame
+
+for i = 1, 4 do
+    local slotBtn = Instance.new("TextButton")
+    slotBtn.Size = UDim2.new(0.23, 0, 1, 0)
+    slotBtn.Position = UDim2.new((i-1) * 0.26, 0, 0, 0)
+    slotBtn.BackgroundColor3 = i == 1 and Color3.fromRGB(50, 150, 255) or Color3.fromRGB(60, 60, 65)
+    slotBtn.Text = tostring(i)
+    slotBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    slotBtn.Font = Enum.Font.GothamBold
+    slotBtn.TextSize = 12
+    slotBtn.Parent = moveSlotFrame
+    Instance.new("UICorner", slotBtn).CornerRadius = UDim.new(0, 4)
+    
+    slotBtn.MouseButton1Click:Connect(function()
+        env.AutoEncounter.MoveSlot = i
+        for _, btn in pairs(moveSlotFrame:GetChildren()) do
+            if btn:IsA("TextButton") then
+                btn.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
+            end
+        end
+        slotBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 255)
+    end)
+end
+
+-- Zone Selector
+local zoneInput = Instance.new("TextBox")
+zoneInput.Size = UDim2.new(1, 0, 0, 25)
+zoneInput.Position = UDim2.new(0, 0, 0, 120)
+zoneInput.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+zoneInput.Text = "033_Academy"
+zoneInput.PlaceholderText = "Zone (e.g., 033_Academy)"
+zoneInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+zoneInput.Font = Enum.Font.Gotham
+zoneInput.TextSize = 12
+zoneInput.Parent = controlFrame
+Instance.new("UICorner", zoneInput).CornerRadius = UDim.new(0, 6)
+
+-- Delay Input
+local delayInput = Instance.new("TextBox")
+delayInput.Size = UDim2.new(1, 0, 0, 25)
+delayInput.Position = UDim2.new(0, 0, 0, 150)
+delayInput.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+delayInput.Text = "2"
+delayInput.PlaceholderText = "Delay (seconds)"
+delayInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+delayInput.Font = Enum.Font.Gotham
+delayInput.TextSize = 12
+delayInput.Parent = controlFrame
+Instance.new("UICorner", delayInput).CornerRadius = UDim.new(0, 6)
+delayInput:GetPropertyChangedSignal("Text"):Connect(function()
+    env.AutoEncounter.Delay = tonumber(delayInput.Text) or 2
+end)
+
+-- Start/Stop Button
+local toggleBtn = Instance.new("TextButton")
+toggleBtn.Size = UDim2.new(1, 0, 0, 35)
+toggleBtn.Position = UDim2.new(0, 0, 1, -35)
+toggleBtn.BackgroundColor3 = Color3.fromRGB(50, 200, 100)
+toggleBtn.Text = "▶️ Start"
+toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleBtn.Font = Enum.Font.GothamBold
+toggleBtn.TextSize = 14
+toggleBtn.Parent = controlFrame
+Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(0, 6)
+
+toggleBtn.MouseButton1Click:Connect(function()
+    env.AutoEncounter.Active = not env.AutoEncounter.Active
+    if env.AutoEncounter.Active then
+        toggleBtn.Text = "⏸️ Stop"
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+    else
+        toggleBtn.Text = "▶️ Start"
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(50, 200, 100)
+    end
+end)
+
+-- Helper Functions
+local function updateDisplay(enemyData)
+    if not enemyData then return end
+    
+    infoLabels.Name.Text = "Name: " .. (enemyData.name or "Unknown")
+    infoLabels.Stars.Text = "Stars: " .. (enemyData.stars or "0") .. "⭐"
+    infoLabels.Trait.Text = "Trait: " .. (enemyData.trait or "None")
+    infoLabels.Gender.Text = "Gender: " .. (enemyData.gender or "Unknown")
+    infoLabels.Misprint.Text = "Misprint: " .. (enemyData.misprint or "No")
+    infoLabels.Item.Text = "Item: " .. (enemyData.item or "None")
+    infoLabels.Equip.Text = "Equip: " .. (enemyData.equip or "None")
+    infoLabels.Skin.Text = "Skin: " .. (enemyData.skin or "None")
+end
+
+local function getEnemyInfo()
+    local info = {
+        name = "Unknown",
+        stars = 0,
+        trait = "None",
+        gender = "Unknown",
+        misprint = "No",
+        item = "None",
+        equip = "None",
+        skin = "None"
+    }
+    
+    pcall(function()
+        -- Get name
+        local nameLabel = frontBox:FindFirstChild("NameLabel")
+        if nameLabel then
+            info.name = nameLabel.Text
+        end
+        
+        -- Get stars from level label (if visible)
+        local levelLabel = frontBox:FindFirstChild("LevelLabel")
+        if levelLabel and levelLabel.Text then
+            local stars = string.match(levelLabel.Text, "⭐+")
+            if stars then
+                info.stars = #stars
+            end
+        end
+        
+        -- Try to get trait/ability
+        local traitLabel = frontBox:FindFirstChild("Ability") or frontBox:FindFirstChild("Trait")
+        if traitLabel then
+            info.trait = traitLabel.Text
+        end
+    end)
+    
+    return info
+end
+
+local function checkMatch(enemyInfo)
+    -- Check species
+    if env.AutoEncounter.Filters.Species ~= "" then
+        local targetLower = env.AutoEncounter.Filters.Species:lower()
+        local nameLower = enemyInfo.name:lower()
+        if not nameLower:find(targetLower) then
+            return false, "Species Mismatch"
+        end
+    end
+    
+    -- Check stars
+    if enemyInfo.stars < env.AutoEncounter.Filters.MinStars then
+        return false, "Low Stars"
+    end
+    
+    -- Check hidden trait (simplified - would need more info)
+    if env.AutoEncounter.Filters.HiddenTrait then
+        if not enemyInfo.trait:find("HIDDEN") and not enemyInfo.trait:find("Secret") then
+            return false, "No HT"
+        end
+    end
+    
+    return true, "Match"
+end
+
+local function runAway(userID)
+    pcall(function()
+        battleAction:FireServer({
+            {
+                Target = "RunAway",
+                ActionType = "Run",
+                User = userID
+            }
+        })
+        print("[AutoEncounter] 🏃 Running away")
+    end)
+end
+
+local function attack(userID, enemyID, moveSlot)
+    pcall(function()
+        -- Find the move button
+        local moveButtons = actionBar:GetChildren()
+        local moveButton = nil
+        
+        for _, btn in pairs(moveButtons) do
+            if btn:IsA("TextButton") and btn.Name == "Move" .. tostring(moveSlot) then
+                moveButton = btn
+                break
+            end
+        end
+        
+        if not moveButton then
+            -- Fallback: try to find any move button
+            for i, btn in pairs(moveButtons) do
+                if btn:IsA("TextButton") and btn.Name:find("Move") then
+                    moveButton = btn
+                    break
+                end
+            end
+        end
+        
+        if moveButton and moveButton:FindFirstChild("MoveName") then
+            local moveName = moveButton.MoveName.Text
+            
+            battleAction:FireServer({
+                {
+                    Target = enemyID,
+                    ActionType = "Attack",
+                    Action = moveName,
+                    User = userID
+                }
+            })
+            print("[AutoEncounter] ⚔️ Attacking with:", moveName)
+        else
+            warn("[AutoEncounter] Could not find move button")
+        end
+    end)
+end
+
+local function getUserID()
+    -- Try to get user ID from backBox
+    local id = nil
+    pcall(function()
+        -- The user ID is usually stored in a hidden attribute or in the GUI
+        -- We'll need to find it from the battle GUI structure
+        if backBox:FindFirstChild("DoodleID") then
+            id = backBox.DoodleID.Value
+        end
+    end)
+    return id or "unknown"
+end
+
+local function getEnemyID()
+    -- Try to get enemy ID from frontBox
+    local id = nil
+    pcall(function()
+        if frontBox:FindFirstChild("DoodleID") then
+            id = frontBox.DoodleID.Value
+        end
+    end)
+    return id or "unknown"
+end
+
+-- Battle Handler - monitors battle ready signal
+battleReady.OnClientEvent:Connect(function()
+    if not env.AutoEncounter.Active then return end
+    
+    env.AutoEncounter.InBattle = true
+    env.AutoEncounter.Stats.Encounters = env.AutoEncounter.Stats.Encounters + 1
+    
+    -- Wait for battle GUI to be ready
+    task.wait(0.5)
+    
+    -- Get enemy info from GUI
+    local enemyInfo = getEnemyInfo()
+    updateDisplay(enemyInfo)
+    
+    -- Wait for action bar to be visible
+    local waited = 0
+    while not actionBar.Visible and waited < 50 do
+        task.wait(0.1)
+        waited = waited + 1
+    end
+    
+    if not actionBar.Visible then
+        warn("[AutoEncounter] Action bar never became visible")
+        env.AutoEncounter.InBattle = false
+        return
+    end
+    
+    task.wait(0.3)
+    
+    -- Get IDs
+    local userID = getUserID()
+    local enemyID = getEnemyID()
+    
+    if env.AutoEncounter.ChainMode then
+        local isMatch, reason = checkMatch(enemyInfo)
+        local speciesMatch = env.AutoEncounter.Filters.Species == "" or 
+                           enemyInfo.name:lower():find(env.AutoEncounter.Filters.Species:lower())
+        
+        if isMatch then
+            -- Perfect match!
+            env.AutoEncounter.Active = false
+            toggleBtn.Text = "🎉 Found!"
+            toggleBtn.BackgroundColor3 = Color3.fromRGB(255, 215, 0)
+            print("[AutoEncounter] ✨ MATCH FOUND! ✨", enemyInfo.name)
+            env.AutoEncounter.InBattle = false
+        else
+            print("[AutoEncounter] Species=" .. tostring(speciesMatch) .. " | " .. reason)
+            
+            if speciesMatch then
+                -- Right species, wrong stats - attack to chain
+                print("[AutoEncounter] ⚔️ Killing for chain")
+                attack(userID, enemyID, env.AutoEncounter.MoveSlot)
+                env.AutoEncounter.Stats.Chain = env.AutoEncounter.Stats.Chain + 1
+            else
+                -- Wrong species - run
+                print("[AutoEncounter] 🏃 Running (wrong species)")
+                runAway(userID)
+                env.AutoEncounter.Stats.Chain = 0
+            end
+            
+            -- Wait for battle to end
+            task.wait(2)
+            env.AutoEncounter.InBattle = false
+        end
+    else
+        -- Not in chain mode - just run
+        runAway(userID)
+        task.wait(2)
+        env.AutoEncounter.InBattle = false
+    end
+end)
+
+-- Main encounter loop
+task.spawn(function()
+    while task.wait(1) do
+        if env.AutoEncounter.Active and not env.AutoEncounter.InBattle then
+            local zone = zoneInput.Text
+            local encounterType = zoneEncounters[zone] or "WildGrass"
+            
+            if zone and zone ~= "" then
+                pcall(function()
+                    dudeWhyld:FireServer(zone, encounterType)
+                    print("[AutoEncounter] 🎲 Triggered encounter:", zone, encounterType)
+                end)
+                
+                task.wait(env.AutoEncounter.Delay)
+            end
+        end
+    end
+end)
+
+-- Safe parent
+pcall(function()
+    gui.Parent = game:GetService("CoreGui")
+end)
+if not gui.Parent then
+    gui.Parent = playerGui
+end
+
+print("[AutoEncounter] Script loaded! Select move slot 1-4 for attacks.")
