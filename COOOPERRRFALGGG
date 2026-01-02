@@ -13,8 +13,8 @@ local Remotes = LocalPlayer.Remotes
 local BattleActionEvent = Remotes:WaitForChild("BattleAction")
 local RunAwayEvent = Remotes:WaitForChild("DudeWhyld")
 
--- Settings
-local Settings = {
+-- Use _G for persistent storage
+_G.AutoBattleSettings = _G.AutoBattleSettings or {
     AutoAttack = false,
     AutoRun = false,
     EnabledMoves = {
@@ -26,8 +26,7 @@ local Settings = {
     AttackDelay = 0.5
 }
 
--- Cached battle data
-local BattleData = {
+_G.AutoBattleData = _G.AutoBattleData or {
     InBattle = false,
     CurrentMoves = {},
     CurrentTarget = nil,
@@ -36,6 +35,9 @@ local BattleData = {
     Location = nil,
     Terrain = nil
 }
+
+local Settings = _G.AutoBattleSettings
+local BattleData = _G.AutoBattleData
 
 -- Hook into BattleAction to capture data
 local OriginalFireServer = BattleActionEvent.FireServer
@@ -65,15 +67,44 @@ local function hookBattleAction()
     end
 end
 
--- Hook to detect battle start
+-- Hook to detect battle start via StartBattle event
 local function detectBattleStart()
+    -- Hook StartBattle OnClientEvent
+    if Remotes:FindFirstChild("StartBattle") then
+        local StartBattleEvent = Remotes.StartBattle
+        
+        for _, Connection in getconnections(StartBattleEvent.OnClientEvent) do
+            local old; old = hookfunction(Connection.Function, function(...)
+                local args = {...}
+                BattleData.InBattle = true
+                print("[Battle Detected] StartBattle triggered!", ...)
+                
+                -- Try to extract battle data from args
+                if args[1] and type(args[1]) == "table" then
+                    if args[1].Enemies then
+                        for _, enemy in pairs(args[1].Enemies) do
+                            if type(enemy) == "string" then
+                                table.insert(BattleData.Enemies, enemy)
+                            elseif type(enemy) == "table" and enemy.Id then
+                                table.insert(BattleData.Enemies, enemy.Id)
+                            end
+                        end
+                    end
+                end
+                
+                return old(...)
+            end)
+        end
+    end
+    
+    -- Also hook Iamloops1InitialReady as backup
     if Remotes:FindFirstChild("Iamloops1InitialReady") then
         local InitialReadyEvent = Remotes.Iamloops1InitialReady
         local OriginalInitialReady = InitialReadyEvent.FireServer
         
         InitialReadyEvent.FireServer = function(self, ...)
             BattleData.InBattle = true
-            print("[Battle Detected] Battle started!")
+            print("[Battle Detected] Battle ready!")
             return OriginalInitialReady(self, ...)
         end
     end
@@ -91,6 +122,34 @@ local function detectBattleEnd()
             BattleData.Enemies = {}
             print("[Battle Detected] Battle ended!")
             return OriginalBattleOver(self, ...)
+        end
+    end
+end
+
+-- Hook UpdateBattlingPlayers to detect battle state changes
+local function detectBattleState()
+    if Remotes:FindFirstChild("UpdateBattlingPlayers") then
+        local UpdateEvent = Remotes.UpdateBattlingPlayers
+        
+        for _, Connection in getconnections(UpdateEvent.OnClientEvent) do
+            local old; old = hookfunction(Connection.Function, function(...)
+                local args = {...}
+                print("[Battle State] UpdateBattlingPlayers:", ...)
+                
+                -- args[1] is typically the player, args[2] is the battle state (true/false)
+                if args[2] ~= nil then
+                    BattleData.InBattle = args[2]
+                    if args[2] then
+                        print("[Battle Detected] Player entered battle!")
+                    else
+                        print("[Battle Detected] Player left battle!")
+                        BattleData.CurrentTarget = nil
+                        BattleData.Enemies = {}
+                    end
+                end
+                
+                return old(...)
+            end)
         end
     end
 end
@@ -273,6 +332,7 @@ end
 hookBattleAction()
 detectBattleStart()
 detectBattleEnd()
+detectBattleState()
 hookRunAway()
 scanBattleGUI()
 scanClientRunner()
