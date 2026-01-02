@@ -1,0 +1,611 @@
+-- Combined Auto Encounter & Chain Hunter
+-- Using remotes and proper battle data capture
+
+-- Safety checks
+if not game or not game.GetService then return end
+
+-- Initialize settings
+_G.AutoEncounter = _G.AutoEncounter or {
+    Active = false,
+    ChainMode = false,
+    InBattle = false,
+    Delay = 2,
+    MoveSlot = 1,
+    CurrentBattleData = nil,
+    Filters = {
+        Species = "",
+        MinStars = 0,
+        HiddenTrait = false,
+    },
+    Stats = {
+        Encounters = 0,
+        Chain = 0
+    }
+}
+
+local env = _G
+local player = game:GetService("Players").LocalPlayer
+local remotes = player:WaitForChild("Remotes", 10)
+if not remotes then return end
+
+-- Remotes
+local dudeWhyld = remotes:WaitForChild("DudeWhyld", 5)
+local startBattle = remotes:WaitForChild("StartBattle", 5)
+local battleAction = remotes:WaitForChild("BattleAction", 5)
+
+-- GUI References
+local playerGui = player:WaitForChild("PlayerGui", 10)
+local mainGui = playerGui:WaitForChild("MainGui", 10)
+local battleGui = mainGui:WaitForChild("MainBattle", 10)
+
+-- Get battle UI elements
+local bottomBar = battleGui:WaitForChild("BottomBar", 5)
+local actionBar = bottomBar:WaitForChild("Actions", 5)
+
+-- Zone encounters
+local zoneEncounters = {
+    ["025_Sweetsville"] = "WildGrass",
+    ["033_Academy"] = "WildGrass",
+    ["029_SubwayStation"] = "WildGrass",
+    ["TheCarnival"] = "WildGrass",
+    ["006_Route2"] = "WildGrass",
+    ["007_Lakewood"] = "WildGrass",
+    ["010_Route3"] = "WildGrass",
+    ["013_Route4"] = "WildGrass",
+    ["017_Crossroads"] = "WildGrass",
+    ["018_CrystalCaverns"] = "WildGrass",
+    ["024_Route5"] = "WildGrass",
+}
+
+-- GUI Creation
+local gui = Instance.new("ScreenGui")
+gui.Name = "CompactAutoEncounter"
+gui.ResetOnSpawn = false
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+local main = Instance.new("Frame")
+main.Name = "MainFrame"
+main.Size = UDim2.new(0, 220, 0, 515)
+main.Position = UDim2.new(0.05, 0, 0.5, -257)
+main.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+main.BorderSizePixel = 0
+main.Active = true
+main.Draggable = true
+main.Parent = gui
+
+Instance.new("UICorner", main).CornerRadius = UDim.new(0, 8)
+
+-- Header
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -30, 0, 30)
+title.Position = UDim2.new(0, 10, 0, 0)
+title.BackgroundTransparency = 1
+title.Text = "⚔️ Auto Encounter"
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 14
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = main
+
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0, 25, 0, 25)
+closeBtn.Position = UDim2.new(1, -30, 0, 2.5)
+closeBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+closeBtn.Text = "X"
+closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.Parent = main
+Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 4)
+
+closeBtn.MouseButton1Click:Connect(function()
+    env.AutoEncounter.Active = false
+    gui:Destroy()
+end)
+
+-- Info Display
+local infoFrame = Instance.new("Frame")
+infoFrame.Size = UDim2.new(1, -20, 0, 160)
+infoFrame.Position = UDim2.new(0, 10, 0, 35)
+infoFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+infoFrame.Parent = main
+Instance.new("UICorner", infoFrame).CornerRadius = UDim.new(0, 6)
+
+local function createInfoLine(order, labelText)
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -10, 0, 18)
+    label.Position = UDim2.new(0, 5, 0, (order - 1) * 18 + 5)
+    label.BackgroundTransparency = 1
+    label.Text = labelText .. ": -"
+    label.TextColor3 = Color3.fromRGB(200, 200, 200)
+    label.Font = Enum.Font.Gotham
+    label.TextSize = 11
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = infoFrame
+    return label
+end
+
+local infoLabels = {
+    Name = createInfoLine(1, "Name"),
+    Stars = createInfoLine(2, "Stars"),
+    Trait = createInfoLine(3, "Trait"),
+    Gender = createInfoLine(4, "Gender"),
+    Misprint = createInfoLine(5, "Misprint"),
+    Item = createInfoLine(6, "Item"),
+    Equip = createInfoLine(7, "Equip"),
+    Skin = createInfoLine(8, "Skin"),
+}
+
+-- Controls
+local controlFrame = Instance.new("Frame")
+controlFrame.Size = UDim2.new(1, -20, 0, 235)
+controlFrame.Position = UDim2.new(0, 10, 0, 200)
+controlFrame.BackgroundTransparency = 1
+controlFrame.Parent = main
+
+-- Chain Mode Toggle
+local chainModeBtn = Instance.new("TextButton")
+chainModeBtn.Size = UDim2.new(1, 0, 0, 25)
+chainModeBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
+chainModeBtn.Text = "Chain Mode: OFF"
+chainModeBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+chainModeBtn.Font = Enum.Font.Gotham
+chainModeBtn.TextSize = 12
+chainModeBtn.Parent = controlFrame
+Instance.new("UICorner", chainModeBtn).CornerRadius = UDim.new(0, 6)
+
+chainModeBtn.MouseButton1Click:Connect(function()
+    env.AutoEncounter.ChainMode = not env.AutoEncounter.ChainMode
+    if env.AutoEncounter.ChainMode then
+        chainModeBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 255)
+        chainModeBtn.Text = "Chain Mode: ON"
+        chainModeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    else
+        chainModeBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
+        chainModeBtn.Text = "Chain Mode: OFF"
+        chainModeBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+    end
+end)
+
+-- Target Species Input
+local speciesInput = Instance.new("TextBox")
+speciesInput.Size = UDim2.new(1, 0, 0, 25)
+speciesInput.Position = UDim2.new(0, 0, 0, 30)
+speciesInput.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+speciesInput.Text = ""
+speciesInput.PlaceholderText = "Target Species"
+speciesInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+speciesInput.Font = Enum.Font.Gotham
+speciesInput.TextSize = 12
+speciesInput.Parent = controlFrame
+Instance.new("UICorner", speciesInput).CornerRadius = UDim.new(0, 6)
+speciesInput:GetPropertyChangedSignal("Text"):Connect(function() 
+    env.AutoEncounter.Filters.Species = speciesInput.Text 
+end)
+
+-- Min Stars Input
+local starsInput = Instance.new("TextBox")
+starsInput.Size = UDim2.new(0.48, 0, 0, 25)
+starsInput.Position = UDim2.new(0, 0, 0, 60)
+starsInput.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+starsInput.Text = ""
+starsInput.PlaceholderText = "Min Stars"
+starsInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+starsInput.Font = Enum.Font.Gotham
+starsInput.TextSize = 12
+starsInput.Parent = controlFrame
+Instance.new("UICorner", starsInput).CornerRadius = UDim.new(0, 6)
+starsInput:GetPropertyChangedSignal("Text"):Connect(function() 
+    env.AutoEncounter.Filters.MinStars = tonumber(starsInput.Text) or 0 
+end)
+
+-- Hidden Trait Toggle
+local htBtn = Instance.new("TextButton")
+htBtn.Size = UDim2.new(0.48, 0, 0, 25)
+htBtn.Position = UDim2.new(0.52, 0, 0, 60)
+htBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
+htBtn.Text = "HT: OFF"
+htBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+htBtn.Font = Enum.Font.Gotham
+htBtn.TextSize = 11
+htBtn.Parent = controlFrame
+Instance.new("UICorner", htBtn).CornerRadius = UDim.new(0, 6)
+
+htBtn.MouseButton1Click:Connect(function()
+    env.AutoEncounter.Filters.HiddenTrait = not env.AutoEncounter.Filters.HiddenTrait
+    htBtn.Text = env.AutoEncounter.Filters.HiddenTrait and "HT: ON" or "HT: OFF"
+    htBtn.BackgroundColor3 = env.AutoEncounter.Filters.HiddenTrait and Color3.fromRGB(50, 150, 255) or Color3.fromRGB(60, 60, 65)
+    htBtn.TextColor3 = env.AutoEncounter.Filters.HiddenTrait and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(200, 200, 200)
+end)
+
+-- Move Slot Selector
+local moveSlotLabel = Instance.new("TextLabel")
+moveSlotLabel.Size = UDim2.new(0.5, -5, 0, 25)
+moveSlotLabel.Position = UDim2.new(0, 0, 0, 90)
+moveSlotLabel.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+moveSlotLabel.Text = "Move Slot:"
+moveSlotLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+moveSlotLabel.Font = Enum.Font.Gotham
+moveSlotLabel.TextSize = 12
+moveSlotLabel.Parent = controlFrame
+Instance.new("UICorner", moveSlotLabel).CornerRadius = UDim.new(0, 6)
+
+local moveSlotFrame = Instance.new("Frame")
+moveSlotFrame.Size = UDim2.new(0.5, -5, 0, 25)
+moveSlotFrame.Position = UDim2.new(0.5, 5, 0, 90)
+moveSlotFrame.BackgroundTransparency = 1
+moveSlotFrame.Parent = controlFrame
+
+for i = 1, 4 do
+    local slotBtn = Instance.new("TextButton")
+    slotBtn.Size = UDim2.new(0.23, 0, 1, 0)
+    slotBtn.Position = UDim2.new((i-1) * 0.26, 0, 0, 0)
+    slotBtn.BackgroundColor3 = i == 1 and Color3.fromRGB(50, 150, 255) or Color3.fromRGB(60, 60, 65)
+    slotBtn.Text = tostring(i)
+    slotBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    slotBtn.Font = Enum.Font.GothamBold
+    slotBtn.TextSize = 12
+    slotBtn.Parent = moveSlotFrame
+    Instance.new("UICorner", slotBtn).CornerRadius = UDim.new(0, 4)
+    
+    slotBtn.MouseButton1Click:Connect(function()
+        env.AutoEncounter.MoveSlot = i
+        for _, btn in pairs(moveSlotFrame:GetChildren()) do
+            if btn:IsA("TextButton") then
+                btn.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
+            end
+        end
+        slotBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 255)
+    end)
+end
+
+-- Zone Selector
+local zoneInput = Instance.new("TextBox")
+zoneInput.Size = UDim2.new(1, 0, 0, 25)
+zoneInput.Position = UDim2.new(0, 0, 0, 120)
+zoneInput.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+zoneInput.Text = "033_Academy"
+zoneInput.PlaceholderText = "Zone (e.g., 033_Academy)"
+zoneInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+zoneInput.Font = Enum.Font.Gotham
+zoneInput.TextSize = 12
+zoneInput.Parent = controlFrame
+Instance.new("UICorner", zoneInput).CornerRadius = UDim.new(0, 6)
+
+-- Delay Input
+local delayInput = Instance.new("TextBox")
+delayInput.Size = UDim2.new(1, 0, 0, 25)
+delayInput.Position = UDim2.new(0, 0, 0, 150)
+delayInput.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+delayInput.Text = "2"
+delayInput.PlaceholderText = "Delay (seconds)"
+delayInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+delayInput.Font = Enum.Font.Gotham
+delayInput.TextSize = 12
+delayInput.Parent = controlFrame
+Instance.new("UICorner", delayInput).CornerRadius = UDim.new(0, 6)
+delayInput:GetPropertyChangedSignal("Text"):Connect(function()
+    env.AutoEncounter.Delay = tonumber(delayInput.Text) or 2
+end)
+
+-- Debug Button to test move detection
+local debugBtn = Instance.new("TextButton")
+debugBtn.Size = UDim2.new(1, 0, 0, 25)
+debugBtn.Position = UDim2.new(0, 0, 0, 180)
+debugBtn.BackgroundColor3 = Color3.fromRGB(100, 100, 105)
+debugBtn.Text = "🔍 Debug Moves"
+debugBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+debugBtn.Font = Enum.Font.Gotham
+debugBtn.TextSize = 11
+debugBtn.Parent = controlFrame
+Instance.new("UICorner", debugBtn).CornerRadius = UDim.new(0, 6)
+
+debugBtn.MouseButton1Click:Connect(function()
+    print("[AutoEncounter] === DEBUG: Checking moves ===")
+    print("[AutoEncounter] ActionBar visible?", actionBar.Visible)
+    print("[AutoEncounter] Selected move slot:", env.AutoEncounter.MoveSlot)
+    for i = 1, 4 do
+        local move = getMoveName(i)
+        print("[AutoEncounter] Slot", i, "=", move or "NOT FOUND")
+    end
+    print("[AutoEncounter] === END DEBUG ===")
+end)
+
+-- Start/Stop Button
+local toggleBtn = Instance.new("TextButton")
+toggleBtn.Size = UDim2.new(1, 0, 0, 35)
+toggleBtn.Position = UDim2.new(0, 0, 1, -35)
+toggleBtn.BackgroundColor3 = Color3.fromRGB(50, 200, 100)
+toggleBtn.Text = "▶️ Start"
+toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleBtn.Font = Enum.Font.GothamBold
+toggleBtn.TextSize = 14
+toggleBtn.Parent = controlFrame
+Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(0, 6)
+
+toggleBtn.MouseButton1Click:Connect(function()
+    env.AutoEncounter.Active = not env.AutoEncounter.Active
+    if env.AutoEncounter.Active then
+        toggleBtn.Text = "⏸️ Stop"
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+    else
+        toggleBtn.Text = "▶️ Start"
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(50, 200, 100)
+    end
+end)
+
+-- Helper Functions
+local function updateDisplay(data)
+    if not data then return end
+    
+    infoLabels.Name.Text = "Name: " .. (data.Name or data.RealName or "Unknown")
+    infoLabels.Stars.Text = "Stars: " .. (data.Star or 0) .. "⭐"
+    
+    local trait = data.Ability or data.Trait or data.HiddenTrait or "None"
+    infoLabels.Trait.Text = "Trait: " .. tostring(trait)
+    
+    local gender = "Genderless"
+    if data.Gender == "Male" then gender = "♂ Male" 
+    elseif data.Gender == "Female" then gender = "♀ Female" end
+    infoLabels.Gender.Text = "Gender: " .. gender
+    
+    local misprint = "No"
+    if data.Shiny then misprint = "Shiny" end
+    if data.Color and data.Color ~= "Normal" then misprint = data.Color end
+    infoLabels.Misprint.Text = "Misprint: " .. misprint
+    
+    infoLabels.Item.Text = "Item: " .. (data.Item or "None")
+    infoLabels.Equip.Text = "Equip: " .. (data.Equipment or "None")
+    infoLabels.Skin.Text = "Skin: " .. tostring(data.Skin or "None")
+end
+
+local function checkMatch(data)
+    -- Check species
+    if env.AutoEncounter.Filters.Species ~= "" then
+        local targetLower = env.AutoEncounter.Filters.Species:lower()
+        local nameLower = (data.Name or data.RealName or ""):lower()
+        if not nameLower:find(targetLower) then
+            return false, "Species Mismatch"
+        end
+    end
+    
+    -- Check stars
+    if (data.Star or 0) < env.AutoEncounter.Filters.MinStars then
+        return false, "Low Stars"
+    end
+    
+    -- Check hidden trait
+    if env.AutoEncounter.Filters.HiddenTrait then
+        if not data.HiddenTrait then
+            return false, "No HT"
+        end
+    end
+    
+    return true, "Match"
+end
+
+local function getMoveName(moveSlot)
+    -- Try to find the move button and get its name
+    local moveName = nil
+    pcall(function()
+        print("[AutoEncounter] Searching for move slot", moveSlot)
+        print("[AutoEncounter] ActionBar children:")
+        
+        -- List all children for debugging
+        for i, child in pairs(actionBar:GetChildren()) do
+            if child:IsA("TextButton") or child:IsA("ImageButton") then
+                print("  -", i, child.Name, child.ClassName)
+            end
+        end
+        
+        -- Look for move buttons in action bar
+        for _, child in pairs(actionBar:GetChildren()) do
+            if child:IsA("TextButton") or child:IsA("ImageButton") then
+                -- Check multiple naming patterns
+                local slotNumber = tonumber(child.Name:match("%d+"))
+                
+                -- Also check for "Move1", "Move2", etc naming
+                if child.Name == "Move" .. tostring(moveSlot) or slotNumber == moveSlot then
+                    print("[AutoEncounter] Found move button:", child.Name)
+                    
+                    -- Try multiple ways to get the move name
+                    if child:FindFirstChild("MoveName") then
+                        moveName = child.MoveName.Text
+                        print("[AutoEncounter] Found MoveName:", moveName)
+                    elseif child:FindFirstChild("TextLabel") then
+                        moveName = child.TextLabel.Text
+                        print("[AutoEncounter] Found TextLabel:", moveName)
+                    elseif child:FindFirstChild("Name") then
+                        moveName = child.Name.Text
+                        print("[AutoEncounter] Found Name:", moveName)
+                    elseif child.Text and child.Text ~= "" and not child.Text:match("^%d+$") then
+                        moveName = child.Text
+                        print("[AutoEncounter] Found Text:", moveName)
+                    end
+                    
+                    if moveName then break end
+                end
+            end
+        end
+        
+        if not moveName then
+            print("[AutoEncounter] Move not found in slot", moveSlot)
+        end
+    end)
+    return moveName
+end
+
+local function runAway(userID)
+    local success, err = pcall(function()
+        local actionData = {
+            {
+                Target = "RunAway",
+                ActionType = "Run",
+                User = userID
+            }
+        }
+        battleAction:FireServer(actionData)
+        print("[AutoEncounter] 🏃 Running away | UserID:", userID)
+    end)
+    if not success then
+        warn("[AutoEncounter] Run failed:", err)
+    end
+end
+
+local function attack(userID, enemyID, moveSlot)
+    task.wait(0.5) -- Wait for action bar to be ready
+    
+    -- Get move name from the selected slot
+    local moveName = getMoveName(moveSlot)
+    
+    if not moveName then
+        -- Fallback: try to get any move
+        for i = 1, 4 do
+            moveName = getMoveName(i)
+            if moveName then 
+                print("[AutoEncounter] Using fallback move slot:", i)
+                break 
+            end
+        end
+    end
+    
+    if moveName and moveName ~= "" then
+        local success, err = pcall(function()
+            local actionData = {
+                {
+                    Target = enemyID,
+                    ActionType = "Attack",
+                    Action = moveName,
+                    User = userID
+                }
+            }
+            battleAction:FireServer(actionData)
+            print("[AutoEncounter] ⚔️ Attacking:", moveName, "| User:", userID, "| Target:", enemyID)
+        end)
+        if not success then
+            warn("[AutoEncounter] Attack failed:", err)
+            runAway(userID)
+        end
+    else
+        warn("[AutoEncounter] Could not find move name, running instead")
+        runAway(userID)
+    end
+end
+
+-- Battle Handler - captures StartBattle data
+startBattle.OnClientEvent:Connect(function(battleData)
+    if not env.AutoEncounter.Active then return end
+    
+    env.AutoEncounter.InBattle = true
+    env.AutoEncounter.CurrentBattleData = battleData
+    env.AutoEncounter.Stats.Encounters = env.AutoEncounter.Stats.Encounters + 1
+    
+    print("[AutoEncounter] Battle started!")
+    
+    -- Get enemy doodle data
+    local enemyDoodle = battleData.Player2Party and battleData.Player2Party[1]
+    local myDoodle = battleData.Player1Party and battleData.Player1Party[1]
+    
+    if not enemyDoodle or not myDoodle then
+        warn("[AutoEncounter] Could not get doodle data")
+        env.AutoEncounter.InBattle = false
+        return
+    end
+    
+    -- Update display with enemy info
+    updateDisplay(enemyDoodle)
+    
+    -- Wait for action bar to be visible
+    local waited = 0
+    while not actionBar.Visible and waited < 100 do
+        task.wait(0.1)
+        waited = waited + 1
+    end
+    
+    if not actionBar.Visible then
+        warn("[AutoEncounter] Action bar timeout")
+        env.AutoEncounter.InBattle = false
+        return
+    end
+    
+    task.wait(0.3) -- Additional stability wait
+    
+    -- Get IDs
+    local userID = myDoodle.ID
+    local enemyID = enemyDoodle.ID
+    
+    print("[AutoEncounter] User ID:", userID, "| Enemy ID:", enemyID)
+    
+    if env.AutoEncounter.ChainMode then
+        local isMatch, reason = checkMatch(enemyDoodle)
+        local speciesMatch = env.AutoEncounter.Filters.Species == "" or 
+                           (enemyDoodle.Name or ""):lower():find(env.AutoEncounter.Filters.Species:lower())
+        
+        if isMatch then
+            -- Perfect match!
+            env.AutoEncounter.Active = false
+            toggleBtn.Text = "🎉 Found!"
+            toggleBtn.BackgroundColor3 = Color3.fromRGB(255, 215, 0)
+            print("[AutoEncounter] ✨ MATCH FOUND! ✨", enemyDoodle.Name)
+            env.AutoEncounter.InBattle = false
+        else
+            print("[AutoEncounter] Species=" .. tostring(speciesMatch) .. " | " .. reason)
+            
+            if speciesMatch then
+                -- Right species, wrong stats - attack to chain
+                print("[AutoEncounter] ⚔️ Killing for chain")
+                attack(userID, enemyID, env.AutoEncounter.MoveSlot)
+                env.AutoEncounter.Stats.Chain = env.AutoEncounter.Stats.Chain + 1
+            else
+                -- Wrong species - run
+                print("[AutoEncounter] 🏃 Running (wrong species)")
+                runAway(userID)
+                env.AutoEncounter.Stats.Chain = 0
+            end
+            
+            -- Wait for battle to end
+            task.wait(3)
+            env.AutoEncounter.InBattle = false
+        end
+    else
+        -- Not in chain mode - just run
+        print("[AutoEncounter] 🏃 Not chain mode, running away")
+        runAway(userID)
+        task.wait(3)
+        env.AutoEncounter.InBattle = false
+    end
+end)
+
+-- Main encounter loop
+task.spawn(function()
+    while task.wait(1) do
+        if env.AutoEncounter.Active and not env.AutoEncounter.InBattle then
+            local zone = zoneInput.Text
+            local encounterType = zoneEncounters[zone] or "WildGrass"
+            
+            if zone and zone ~= "" then
+                local success, err = pcall(function()
+                    dudeWhyld:FireServer(zone, encounterType)
+                end)
+                
+                if success then
+                    print("[AutoEncounter] 🎲 Triggered encounter:", zone, encounterType)
+                else
+                    warn("[AutoEncounter] Encounter failed:", err)
+                end
+                
+                task.wait(env.AutoEncounter.Delay)
+            end
+        end
+    end
+end)
+
+-- Safe parent
+pcall(function()
+    gui.Parent = game:GetService("CoreGui")
+end)
+if not gui.Parent then
+    gui.Parent = playerGui
+end
+
+print("[AutoEncounter] Script loaded! Select move slot 1-4 for attacks.")
+print("[AutoEncounter] Listening for StartBattle event...")
