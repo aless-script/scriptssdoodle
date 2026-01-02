@@ -1,0 +1,561 @@
+-- Auto Battle Script with Automatic Info Gathering
+-- Automatically detects targets, moves, and battle state
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local RunService = game:GetService("RunService")
+
+-- Wait for character and remotes to load
+repeat task.wait() until LocalPlayer.Character
+repeat task.wait() until LocalPlayer:FindFirstChild("Remotes")
+
+local Remotes = LocalPlayer.Remotes
+local BattleActionEvent = Remotes:WaitForChild("BattleAction")
+local RunAwayEvent = Remotes:WaitForChild("DudeWhyld")
+
+-- Settings
+local Settings = {
+    AutoAttack = false,
+    AutoRun = false,
+    EnabledMoves = {
+        [1] = true,
+        [2] = true,
+        [3] = true,
+        [4] = true
+    },
+    AttackDelay = 0.5
+}
+
+-- Cached battle data
+local BattleData = {
+    InBattle = false,
+    CurrentMoves = {},
+    CurrentTarget = nil,
+    UserId = nil,
+    Enemies = {},
+    Location = nil,
+    Terrain = nil
+}
+
+-- Hook into BattleAction to capture data
+local OriginalFireServer = BattleActionEvent.FireServer
+local function hookBattleAction()
+    BattleActionEvent.FireServer = function(self, data, ...)
+        -- Capture battle data from outgoing requests
+        if data and type(data) == "table" and #data > 0 then
+            local action = data[1]
+            if action.User then
+                BattleData.UserId = action.User
+            end
+            if action.Target then
+                BattleData.CurrentTarget = action.Target
+                if not table.find(BattleData.Enemies, action.Target) then
+                    table.insert(BattleData.Enemies, action.Target)
+                end
+            end
+            if action.Action then
+                if not table.find(BattleData.CurrentMoves, action.Action) then
+                    table.insert(BattleData.CurrentMoves, action.Action)
+                end
+            end
+            BattleData.InBattle = true
+        end
+        
+        return OriginalFireServer(self, data, ...)
+    end
+end
+
+-- Hook to detect battle start
+local function detectBattleStart()
+    if Remotes:FindFirstChild("Iamloops1InitialReady") then
+        local InitialReadyEvent = Remotes.Iamloops1InitialReady
+        local OriginalInitialReady = InitialReadyEvent.FireServer
+        
+        InitialReadyEvent.FireServer = function(self, ...)
+            BattleData.InBattle = true
+            print("[Battle Detected] Battle started!")
+            return OriginalInitialReady(self, ...)
+        end
+    end
+end
+
+-- Hook to detect battle end
+local function detectBattleEnd()
+    if Remotes:FindFirstChild("Iamloops1Over") then
+        local BattleOverEvent = Remotes.Iamloops1Over
+        local OriginalBattleOver = BattleOverEvent.FireServer
+        
+        BattleOverEvent.FireServer = function(self, ...)
+            BattleData.InBattle = false
+            BattleData.CurrentTarget = nil
+            BattleData.Enemies = {}
+            print("[Battle Detected] Battle ended!")
+            return OriginalBattleOver(self, ...)
+        end
+    end
+end
+
+-- Hook to capture location/terrain data
+local OriginalRunAway = RunAwayEvent.FireServer
+local function hookRunAway()
+    RunAwayEvent.FireServer = function(self, location, terrain, ...)
+        BattleData.Location = location or BattleData.Location
+        BattleData.Terrain = terrain or BattleData.Terrain
+        return OriginalRunAway(self, location, terrain, ...)
+    end
+end
+
+-- Scan player's GUI for battle information
+local function scanBattleGUI()
+    task.spawn(function()
+        while true do
+            task.wait(1)
+            
+            -- Look for battle-related GUIs
+            local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+            
+            for _, gui in pairs(PlayerGui:GetDescendants()) do
+                if gui:IsA("TextLabel") or gui:IsA("TextButton") then
+                    local text = gui.Text:lower()
+                    
+                    -- Detect battle state
+                    if text:match("battle") or text:match("fight") or text:match("attack") then
+                        BattleData.InBattle = true
+                    end
+                    
+                    -- Detect moves (common patterns)
+                    if text:match("move") or text:match("attack") or text:match("skill") then
+                        local moveName = gui.Text
+                        if moveName ~= "" and not table.find(BattleData.CurrentMoves, moveName) then
+                            table.insert(BattleData.CurrentMoves, moveName)
+                            print("[Moves Detected] Found move:", moveName)
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end
+
+-- Scan for ClientRunner data
+local function scanClientRunner()
+    if LocalPlayer:FindFirstChild("ClientRunner") then
+        local ClientRunner = LocalPlayer.ClientRunner
+        
+        -- Try to find battle data in ClientRunner
+        for _, child in pairs(ClientRunner:GetDescendants()) do
+            if child:IsA("ValueBase") then
+                print("[ClientRunner] Found value:", child.Name, "=", child.Value)
+            end
+        end
+    end
+end
+
+-- Get best available target
+local function getTarget()
+    if BattleData.CurrentTarget then
+        return BattleData.CurrentTarget
+    elseif #BattleData.Enemies > 0 then
+        return BattleData.Enemies[1]
+    end
+    return nil
+end
+
+-- Get user ID
+local function getUserId()
+    return BattleData.UserId
+end
+
+-- Get available moves
+local function getAvailableMoves()
+    if #BattleData.CurrentMoves > 0 then
+        return BattleData.CurrentMoves
+    end
+    
+    -- Fallback: try to detect from GUI
+    local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if PlayerGui then
+        for _, gui in pairs(PlayerGui:GetDescendants()) do
+            if gui:IsA("TextButton") and gui.Name:match("Move") then
+                local moveName = gui.Text
+                if moveName ~= "" then
+                    table.insert(BattleData.CurrentMoves, moveName)
+                end
+            end
+        end
+    end
+    
+    return BattleData.CurrentMoves
+end
+
+-- Auto Attack Function
+local function autoAttack()
+    while Settings.AutoAttack do
+        task.wait(Settings.AttackDelay)
+        
+        if not BattleData.InBattle then
+            task.wait(1)
+            continue
+        end
+        
+        local moves = getAvailableMoves()
+        local target = getTarget()
+        local userId = getUserId()
+        
+        if not target or not userId then
+            warn("[Auto Attack] Missing target or user ID, waiting...")
+            task.wait(1)
+            continue
+        end
+        
+        -- Attack with enabled moves
+        for i, move in ipairs(moves) do
+            if Settings.EnabledMoves[i] and Settings.AutoAttack then
+                local success, err = pcall(function()
+                    BattleActionEvent:FireServer({
+                        {
+                            Target = target,
+                            ActionType = "Attack",
+                            Action = move,
+                            User = userId
+                        }
+                    })
+                end)
+                
+                if success then
+                    print("[Auto Attack] Used:", move, "on", target)
+                else
+                    warn("[Auto Attack] Failed:", err)
+                end
+                
+                task.wait(Settings.AttackDelay)
+            end
+        end
+    end
+end
+
+-- Auto Run Function
+local function autoRun()
+    if not BattleData.InBattle then
+        print("[Auto Run] Not in battle!")
+        return
+    end
+    
+    local location = BattleData.Location or "033_Academy"
+    local terrain = BattleData.Terrain or "WildGrass"
+    
+    local success, err = pcall(function()
+        RunAwayEvent:FireServer(location, terrain)
+    end)
+    
+    if success then
+        print("[Auto Run] Successfully ran away from battle")
+        BattleData.InBattle = false
+    else
+        warn("[Auto Run] Failed:", err)
+    end
+end
+
+-- Monitor battle state
+local function monitorBattle()
+    task.spawn(function()
+        while true do
+            task.wait(2)
+            
+            if Settings.AutoRun and BattleData.InBattle then
+                autoRun()
+            end
+        end
+    end)
+end
+
+-- Initialize hooks
+hookBattleAction()
+detectBattleStart()
+detectBattleEnd()
+hookRunAway()
+scanBattleGUI()
+scanClientRunner()
+monitorBattle()
+
+-- Create GUI
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "AutoBattleGUI"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+-- Main Frame
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 320, 0, 420)
+MainFrame.Position = UDim2.new(0.5, -160, 0.5, -210)
+MainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 10)
+UICorner.Parent = MainFrame
+
+-- Title Bar
+local TitleBar = Instance.new("Frame")
+TitleBar.Name = "TitleBar"
+TitleBar.Size = UDim2.new(1, 0, 0, 40)
+TitleBar.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
+TitleBar.BorderSizePixel = 0
+TitleBar.Parent = MainFrame
+
+local TitleCorner = Instance.new("UICorner")
+TitleCorner.CornerRadius = UDim.new(0, 10)
+TitleCorner.Parent = TitleBar
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -80, 1, 0)
+Title.Position = UDim2.new(0, 10, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "Auto Battle"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 18
+Title.Font = Enum.Font.GothamBold
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = TitleBar
+
+-- Close Button
+local CloseButton = Instance.new("TextButton")
+CloseButton.Size = UDim2.new(0, 30, 0, 30)
+CloseButton.Position = UDim2.new(1, -35, 0, 5)
+CloseButton.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+CloseButton.Text = "X"
+CloseButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseButton.TextSize = 16
+CloseButton.Font = Enum.Font.GothamBold
+CloseButton.BorderSizePixel = 0
+CloseButton.Parent = TitleBar
+
+local CloseCorner = Instance.new("UICorner")
+CloseCorner.CornerRadius = UDim.new(0, 6)
+CloseCorner.Parent = CloseButton
+
+CloseButton.MouseButton1Click:Connect(function()
+    ScreenGui:Destroy()
+end)
+
+-- Content Frame
+local ContentFrame = Instance.new("Frame")
+ContentFrame.Size = UDim2.new(1, -20, 1, -60)
+ContentFrame.Position = UDim2.new(0, 10, 0, 50)
+ContentFrame.BackgroundTransparency = 1
+ContentFrame.Parent = MainFrame
+
+-- Function to create toggle button
+local function createToggle(name, position, callback)
+    local ToggleFrame = Instance.new("Frame")
+    ToggleFrame.Size = UDim2.new(1, 0, 0, 40)
+    ToggleFrame.Position = position
+    ToggleFrame.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
+    ToggleFrame.BorderSizePixel = 0
+    ToggleFrame.Parent = ContentFrame
+    
+    local ToggleCorner = Instance.new("UICorner")
+    ToggleCorner.CornerRadius = UDim.new(0, 8)
+    ToggleCorner.Parent = ToggleFrame
+    
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(0.6, 0, 1, 0)
+    Label.Position = UDim2.new(0, 10, 0, 0)
+    Label.BackgroundTransparency = 1
+    Label.Text = name
+    Label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Label.TextSize = 14
+    Label.Font = Enum.Font.Gotham
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Parent = ToggleFrame
+    
+    local ToggleButton = Instance.new("TextButton")
+    ToggleButton.Size = UDim2.new(0, 60, 0, 25)
+    ToggleButton.Position = UDim2.new(1, -70, 0.5, -12.5)
+    ToggleButton.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+    ToggleButton.Text = "OFF"
+    ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    ToggleButton.TextSize = 12
+    ToggleButton.Font = Enum.Font.GothamBold
+    ToggleButton.BorderSizePixel = 0
+    ToggleButton.Parent = ToggleFrame
+    
+    local ButtonCorner = Instance.new("UICorner")
+    ButtonCorner.CornerRadius = UDim.new(0, 6)
+    ButtonCorner.Parent = ToggleButton
+    
+    local isEnabled = false
+    
+    ToggleButton.MouseButton1Click:Connect(function()
+        isEnabled = not isEnabled
+        ToggleButton.Text = isEnabled and "ON" or "OFF"
+        ToggleButton.BackgroundColor3 = isEnabled and Color3.fromRGB(50, 220, 100) or Color3.fromRGB(220, 50, 50)
+        callback(isEnabled)
+    end)
+    
+    return ToggleButton
+end
+
+-- Function to create move toggle
+local function createMoveToggle(moveNum, position)
+    local MoveFrame = Instance.new("Frame")
+    MoveFrame.Size = UDim2.new(0.48, 0, 0, 35)
+    MoveFrame.Position = position
+    MoveFrame.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
+    MoveFrame.BorderSizePixel = 0
+    MoveFrame.Parent = ContentFrame
+    
+    local MoveCorner = Instance.new("UICorner")
+    MoveCorner.CornerRadius = UDim.new(0, 8)
+    MoveCorner.Parent = MoveFrame
+    
+    local MoveButton = Instance.new("TextButton")
+    MoveButton.Size = UDim2.new(1, -10, 1, -10)
+    MoveButton.Position = UDim2.new(0, 5, 0, 5)
+    MoveButton.BackgroundColor3 = Color3.fromRGB(50, 220, 100)
+    MoveButton.Text = "Move " .. moveNum
+    MoveButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    MoveButton.TextSize = 12
+    MoveButton.Font = Enum.Font.GothamBold
+    MoveButton.BorderSizePixel = 0
+    MoveButton.Parent = MoveFrame
+    
+    local MoveButtonCorner = Instance.new("UICorner")
+    MoveButtonCorner.CornerRadius = UDim.new(0, 6)
+    MoveButtonCorner.Parent = MoveButton
+    
+    MoveButton.MouseButton1Click:Connect(function()
+        Settings.EnabledMoves[moveNum] = not Settings.EnabledMoves[moveNum]
+        MoveButton.BackgroundColor3 = Settings.EnabledMoves[moveNum] and Color3.fromRGB(50, 220, 100) or Color3.fromRGB(220, 50, 50)
+    end)
+    
+    return MoveButton
+end
+
+-- Create toggles
+createToggle("Auto Attack", UDim2.new(0, 0, 0, 0), function(enabled)
+    Settings.AutoAttack = enabled
+    if enabled then
+        task.spawn(autoAttack)
+    end
+end)
+
+createToggle("Auto Run", UDim2.new(0, 0, 0, 50), function(enabled)
+    Settings.AutoRun = enabled
+end)
+
+-- Moves Label
+local MovesLabel = Instance.new("TextLabel")
+MovesLabel.Size = UDim2.new(1, 0, 0, 30)
+MovesLabel.Position = UDim2.new(0, 0, 0, 110)
+MovesLabel.BackgroundTransparency = 1
+MovesLabel.Text = "Select Moves to Use:"
+MovesLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+MovesLabel.TextSize = 14
+MovesLabel.Font = Enum.Font.GothamBold
+MovesLabel.TextXAlignment = Enum.TextXAlignment.Left
+MovesLabel.Parent = ContentFrame
+
+-- Create move toggles (2x2 grid)
+local MoveButtons = {}
+MoveButtons[1] = createMoveToggle(1, UDim2.new(0, 0, 0, 145))
+MoveButtons[2] = createMoveToggle(2, UDim2.new(0.52, 0, 0, 145))
+MoveButtons[3] = createMoveToggle(3, UDim2.new(0, 0, 0, 190))
+MoveButtons[4] = createMoveToggle(4, UDim2.new(0.52, 0, 0, 190))
+
+-- Update move button labels when moves are detected
+task.spawn(function()
+    while true do
+        task.wait(2)
+        for i, move in ipairs(BattleData.CurrentMoves) do
+            if MoveButtons[i] then
+                MoveButtons[i].Text = move
+            end
+        end
+    end
+end)
+
+-- Run Away Button
+local RunButton = Instance.new("TextButton")
+RunButton.Size = UDim2.new(1, 0, 0, 45)
+RunButton.Position = UDim2.new(0, 0, 0, 245)
+RunButton.BackgroundColor3 = Color3.fromRGB(255, 165, 0)
+RunButton.Text = "RUN AWAY NOW"
+RunButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+RunButton.TextSize = 16
+RunButton.Font = Enum.Font.GothamBold
+RunButton.BorderSizePixel = 0
+RunButton.Parent = ContentFrame
+
+local RunCorner = Instance.new("UICorner")
+RunCorner.CornerRadius = UDim.new(0, 8)
+RunCorner.Parent = RunButton
+
+RunButton.MouseButton1Click:Connect(function()
+    autoRun()
+end)
+
+-- Info Display
+local InfoFrame = Instance.new("ScrollingFrame")
+InfoFrame.Size = UDim2.new(1, 0, 0, 60)
+InfoFrame.Position = UDim2.new(0, 0, 0, 300)
+InfoFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+InfoFrame.BorderSizePixel = 0
+InfoFrame.ScrollBarThickness = 4
+InfoFrame.Parent = ContentFrame
+
+local InfoCorner = Instance.new("UICorner")
+InfoCorner.CornerRadius = UDim.new(0, 8)
+InfoCorner.Parent = InfoFrame
+
+local InfoLabel = Instance.new("TextLabel")
+InfoLabel.Size = UDim2.new(1, -10, 1, 0)
+InfoLabel.Position = UDim2.new(0, 5, 0, 0)
+InfoLabel.BackgroundTransparency = 1
+InfoLabel.Text = "Battle Info:\nWaiting for battle..."
+InfoLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+InfoLabel.TextSize = 11
+InfoLabel.Font = Enum.Font.Code
+InfoLabel.TextXAlignment = Enum.TextXAlignment.Left
+InfoLabel.TextYAlignment = Enum.TextYAlignment.Top
+InfoLabel.Parent = InfoFrame
+
+-- Update info display
+task.spawn(function()
+    while true do
+        task.wait(1)
+        local info = "Battle Info:\n"
+        info = info .. "In Battle: " .. tostring(BattleData.InBattle) .. "\n"
+        info = info .. "Moves Detected: " .. #BattleData.CurrentMoves .. "\n"
+        info = info .. "Target: " .. (BattleData.CurrentTarget or "None") .. "\n"
+        info = info .. "User ID: " .. (BattleData.UserId and "Set" or "None")
+        
+        InfoLabel.Text = info
+        InfoLabel.Size = UDim2.new(1, -10, 0, InfoLabel.TextBounds.Y)
+        InfoFrame.CanvasSize = UDim2.new(0, 0, 0, InfoLabel.TextBounds.Y + 10)
+    end
+end)
+
+-- Parent GUI
+if gethui then
+    ScreenGui.Parent = gethui()
+elseif syn and syn.protect_gui then
+    syn.protect_gui(ScreenGui)
+    ScreenGui.Parent = game.CoreGui
+else
+    ScreenGui.Parent = game.CoreGui
+end
+
+print("=================================")
+print("Auto Battle GUI Loaded!")
+print("=================================")
+print("Features:")
+print("- Automatic target detection")
+print("- Automatic move detection")
+print("- Automatic user ID detection")
+print("- Battle state monitoring")
+print("=================================")
+print("Waiting for battle to gather info...")
