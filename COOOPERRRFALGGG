@@ -6,8 +6,12 @@ local LocalPlayer = Players.LocalPlayer
 local RunService = game:GetService("RunService")
 
 -- Wait for character and remotes to load
-repeat task.wait() until LocalPlayer.Character
-repeat task.wait() until LocalPlayer:FindFirstChild("Remotes")
+local function waitForRemotes()
+    repeat task.wait() until LocalPlayer.Character
+    repeat task.wait() until LocalPlayer:FindFirstChild("Remotes")
+end
+
+pcall(waitForRemotes)
 
 local Remotes = LocalPlayer.Remotes
 local BattleActionEvent = Remotes:WaitForChild("BattleAction")
@@ -40,74 +44,78 @@ local Settings = _G.AutoBattleSettings
 local BattleData = _G.AutoBattleData
 
 -- Hook into BattleAction to capture data
-local OriginalFireServer = BattleActionEvent.FireServer
+local OriginalFireServer
 local function hookBattleAction()
-    BattleActionEvent.FireServer = function(self, data, ...)
-        -- Capture battle data from outgoing requests
-        if data and type(data) == "table" and #data > 0 then
-            local action = data[1]
-            if action.User then
-                BattleData.UserId = action.User
-            end
-            if action.Target then
-                BattleData.CurrentTarget = action.Target
-                if not table.find(BattleData.Enemies, action.Target) then
-                    table.insert(BattleData.Enemies, action.Target)
+    pcall(function()
+        OriginalFireServer = hookfunction(BattleActionEvent.FireServer, function(self, data, ...)
+            -- Capture battle data from outgoing requests
+            if data and type(data) == "table" and #data > 0 then
+                local action = data[1]
+                if action.User then
+                    BattleData.UserId = action.User
                 end
-            end
-            if action.Action then
-                if not table.find(BattleData.CurrentMoves, action.Action) then
-                    table.insert(BattleData.CurrentMoves, action.Action)
+                if action.Target then
+                    BattleData.CurrentTarget = action.Target
+                    if not table.find(BattleData.Enemies, action.Target) then
+                        table.insert(BattleData.Enemies, action.Target)
+                    end
                 end
+                if action.Action then
+                    if not table.find(BattleData.CurrentMoves, action.Action) then
+                        table.insert(BattleData.CurrentMoves, action.Action)
+                    end
+                end
+                BattleData.InBattle = true
             end
-            BattleData.InBattle = true
-        end
-        
-        return OriginalFireServer(self, data, ...)
-    end
+            
+            return OriginalFireServer(self, data, ...)
+        end)
+    end)
 end
 
 -- Hook to detect battle start via StartBattle event
 local function detectBattleStart()
     -- Hook StartBattle OnClientEvent
-    if Remotes:FindFirstChild("StartBattle") then
-        local StartBattleEvent = Remotes.StartBattle
-        
-        for _, Connection in getconnections(StartBattleEvent.OnClientEvent) do
-            local old; old = hookfunction(Connection.Function, function(...)
-                local args = {...}
-                BattleData.InBattle = true
-                print("[Battle Detected] StartBattle triggered!", ...)
-                
-                -- Try to extract battle data from args
-                if args[1] and type(args[1]) == "table" then
-                    if args[1].Enemies then
-                        for _, enemy in pairs(args[1].Enemies) do
-                            if type(enemy) == "string" then
-                                table.insert(BattleData.Enemies, enemy)
-                            elseif type(enemy) == "table" and enemy.Id then
-                                table.insert(BattleData.Enemies, enemy.Id)
+    pcall(function()
+        if Remotes:FindFirstChild("StartBattle") then
+            local StartBattleEvent = Remotes.StartBattle
+            
+            for _, Connection in getconnections(StartBattleEvent.OnClientEvent) do
+                local old; old = hookfunction(Connection.Function, function(...)
+                    local args = {...}
+                    BattleData.InBattle = true
+                    print("[Battle Detected] StartBattle triggered!", ...)
+                    
+                    -- Try to extract battle data from args
+                    if args[1] and type(args[1]) == "table" then
+                        if args[1].Enemies then
+                            for _, enemy in pairs(args[1].Enemies) do
+                                if type(enemy) == "string" then
+                                    table.insert(BattleData.Enemies, enemy)
+                                elseif type(enemy) == "table" and enemy.Id then
+                                    table.insert(BattleData.Enemies, enemy.Id)
+                                end
                             end
                         end
                     end
-                end
-                
-                return old(...)
-            end)
+                    
+                    return old(...)
+                end)
+            end
         end
-    end
+    end)
     
     -- Also hook Iamloops1InitialReady as backup
-    if Remotes:FindFirstChild("Iamloops1InitialReady") then
-        local InitialReadyEvent = Remotes.Iamloops1InitialReady
-        local OriginalInitialReady = InitialReadyEvent.FireServer
-        
-        InitialReadyEvent.FireServer = function(self, ...)
-            BattleData.InBattle = true
-            print("[Battle Detected] Battle ready!")
-            return OriginalInitialReady(self, ...)
+    pcall(function()
+        if Remotes:FindFirstChild("Iamloops1InitialReady") then
+            local InitialReadyEvent = Remotes.Iamloops1InitialReady
+            local OriginalInitialReady = hookfunction(InitialReadyEvent.FireServer, function(self, ...)
+                BattleData.InBattle = true
+                print("[Battle Detected] Battle ready!")
+                return OriginalInitialReady(self, ...)
+            end)
         end
-    end
+    end)
 end
 
 -- Hook to detect battle end
@@ -155,13 +163,15 @@ local function detectBattleState()
 end
 
 -- Hook to capture location/terrain data
-local OriginalRunAway = RunAwayEvent.FireServer
+local OriginalRunAway
 local function hookRunAway()
-    RunAwayEvent.FireServer = function(self, location, terrain, ...)
-        BattleData.Location = location or BattleData.Location
-        BattleData.Terrain = terrain or BattleData.Terrain
-        return OriginalRunAway(self, location, terrain, ...)
-    end
+    pcall(function()
+        OriginalRunAway = hookfunction(RunAwayEvent.FireServer, function(self, location, terrain, ...)
+            BattleData.Location = location or BattleData.Location
+            BattleData.Terrain = terrain or BattleData.Terrain
+            return OriginalRunAway(self, location, terrain, ...)
+        end)
+    end)
 end
 
 -- Scan player's GUI for battle information
