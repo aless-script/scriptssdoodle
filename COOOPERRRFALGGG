@@ -1,13 +1,23 @@
 -- Auto Battle Script with GUI Interaction
--- Automatically clicks buttons and handles encounters
+-- Detects battles via StartBattle event and clicks Fight button + moves
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
-local RunService = game:GetService("RunService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 
--- Wait for game to load
+-- Wait for remotes
 task.wait(2)
+local Remotes = LocalPlayer:WaitForChild("Remotes", 10)
+if not Remotes then 
+    warn("[Auto Battle] Remotes not found!")
+    return 
+end
+
+local StartBattle = Remotes:WaitForChild("StartBattle", 5)
+if not StartBattle then
+    warn("[Auto Battle] StartBattle event not found!")
+    return
+end
 
 -- Initialize global storage
 if not _G.AutoBattle then
@@ -25,9 +35,9 @@ if not _G.AutoBattle then
         },
         BattleData = {
             InBattle = false,
+            FightButton = nil,
             MoveButtons = {},
-            RunButton = nil,
-            LastScan = 0
+            RunButton = nil
         }
     }
 end
@@ -69,176 +79,177 @@ end
 
 -- Scan for battle GUI elements
 local function scanBattleGUI()
-    local currentTime = tick()
-    if currentTime - BattleData.LastScan < 0.5 then
-        return -- Don't scan too frequently
-    end
-    BattleData.LastScan = currentTime
-    
     local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
     if not PlayerGui then return end
     
-    -- Reset detection
-    local foundMoves = {}
-    local wasInBattle = BattleData.InBattle
-    BattleData.InBattle = false
+    BattleData.FightButton = nil
+    BattleData.MoveButtons = {}
+    BattleData.RunButton = nil
     
     -- Scan all GUI elements
     for _, gui in pairs(PlayerGui:GetDescendants()) do
-        if not gui:IsA("GuiObject") then continue end
+        if not gui:IsA("TextButton") or not gui.Visible then continue end
         
-        local text = ""
-        if gui:IsA("TextLabel") or gui:IsA("TextButton") then
-            text = gui.Text:lower()
-        end
-        
+        local text = gui.Text:lower()
         local name = gui.Name:lower()
         
-        -- Detect if we're in battle
-        if text:match("battle") or text:match("wild") or name:match("battle") or 
-           text:match("enemy") or text:match("opponent") then
-            BattleData.InBattle = true
+        -- Find Fight button
+        if text == "fight" or name == "fight" then
+            BattleData.FightButton = gui
+            print("[Auto Battle] Found Fight button:", gui:GetFullName())
         end
         
-        -- Detect victory/defeat (battle ended)
-        if text:match("victory") or text:match("you won") or text:match("defeated") or 
-           text:match("you lost") or text:match("ran away") then
-            BattleData.InBattle = false
+        -- Find Run button
+        if text:match("run") or text:match("flee") or name:match("run") then
+            BattleData.RunButton = gui
+            print("[Auto Battle] Found Run button:", gui:GetFullName())
         end
-        
-        -- Find move buttons (looking for numbered buttons or move names)
-        if gui:IsA("TextButton") and gui.Visible then
-            -- Check if it's a move button
-            if name:match("move") or name:match("attack") or name:match("skill") or
-               text:match("move %d") or (tonumber(text) and tonumber(text) <= 4) then
-                
-                -- Try to determine which move slot this is
-                local moveNum = nil
-                if name:match("move1") or name:match("attack1") or text == "1" then
-                    moveNum = 1
-                elseif name:match("move2") or name:match("attack2") or text == "2" then
-                    moveNum = 2
-                elseif name:match("move3") or name:match("attack3") or text == "3" then
-                    moveNum = 3
-                elseif name:match("move4") or name:match("attack4") or text == "4" then
-                    moveNum = 4
+    end
+    
+    -- After finding Fight button, look for move buttons in same parent
+    if BattleData.FightButton then
+        local parent = BattleData.FightButton.Parent
+        if parent then
+            -- Look for siblings that are likely move buttons
+            local moveButtons = {}
+            for _, child in pairs(parent:GetChildren()) do
+                if child:IsA("TextButton") and child ~= BattleData.FightButton and child.Visible then
+                    -- Skip run button
+                    local childText = child.Text:lower()
+                    if not childText:match("run") and not childText:match("flee") and not childText:match("fight") then
+                        table.insert(moveButtons, child)
+                    end
                 end
-                
-                -- If we couldn't determine the slot, assign sequentially
-                if not moveNum then
-                    for i = 1, 4 do
-                        if not foundMoves[i] then
-                            moveNum = i
+            end
+            
+            -- Sort by position (left to right)
+            table.sort(moveButtons, function(a, b)
+                return a.AbsolutePosition.X < b.AbsolutePosition.X
+            end)
+            
+            -- Assign to slots 1-4
+            for i = 1, math.min(4, #moveButtons) do
+                BattleData.MoveButtons[i] = moveButtons[i]
+                print("[Auto Battle] Found Move", i, ":", moveButtons[i].Text, moveButtons[i]:GetFullName())
+            end
+        end
+    end
+end
+
+-- Battle start detection
+StartBattle.OnClientEvent:Connect(function(battleData)
+    BattleData.InBattle = true
+    print("[Auto Battle] Battle started!")
+    print("[Auto Battle] Battle Data:", battleData)
+    
+    -- Scan for GUI elements
+    task.wait(0.5) -- Wait for GUI to load
+    scanBattleGUI()
+    
+    -- If auto attack is on, start attacking
+    if Settings.AutoAttack then
+        task.spawn(function()
+            task.wait(1) -- Wait a bit for GUI to be ready
+            performAutoAttack()
+        end)
+    end
+    
+    -- If auto run is on, run away
+    if Settings.AutoRun then
+        task.spawn(function()
+            task.wait(1)
+            performAutoRun()
+        end)
+    end
+end)
+
+-- Check if we left battle (detect battle end)
+task.spawn(function()
+    while true do
+        task.wait(1)
+        
+        if BattleData.InBattle then
+            -- Check if battle GUI still exists
+            local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
+            if PlayerGui then
+                local stillInBattle = false
+                for _, gui in pairs(PlayerGui:GetDescendants()) do
+                    if gui:IsA("TextButton") then
+                        local text = gui.Text:lower()
+                        if text == "fight" then
+                            stillInBattle = true
                             break
                         end
                     end
                 end
                 
-                if moveNum then
-                    foundMoves[moveNum] = gui
+                if not stillInBattle then
+                    BattleData.InBattle = false
+                    print("[Auto Battle] Battle ended!")
                 end
-            end
-            
-            -- Find run button
-            if (text:match("run") or text:match("flee") or text:match("escape") or
-                name:match("run") or name:match("flee")) and 
-                not text:match("running") then
-                BattleData.RunButton = gui
             end
         end
     end
+end)
+
+-- Perform auto attack
+function performAutoAttack()
+    if not BattleData.InBattle or not Settings.AutoAttack then return end
     
-    -- Update move buttons
+    -- First click Fight button
+    if BattleData.FightButton then
+        if clickButton(BattleData.FightButton) then
+            print("[Auto Attack] Clicked Fight button")
+            task.wait(0.5) -- Wait for move selection screen
+            
+            -- Re-scan for move buttons after clicking fight
+            scanBattleGUI()
+        else
+            warn("[Auto Attack] Failed to click Fight button")
+            return
+        end
+    else
+        warn("[Auto Attack] Fight button not found")
+        return
+    end
+    
+    -- Click enabled moves (left to right)
     for i = 1, 4 do
-        if foundMoves[i] then
-            BattleData.MoveButtons[i] = foundMoves[i]
-        end
-    end
-    
-    -- Log battle state changes
-    if BattleData.InBattle and not wasInBattle then
-        print("[Auto Battle] Entered battle!")
-    elseif not BattleData.InBattle and wasInBattle then
-        print("[Auto Battle] Left battle!")
-    end
-end
-
--- Auto attack logic
-local function autoAttackLoop()
-    while true do
-        task.wait(0.1)
-        
-        if not Settings.AutoAttack then
-            task.wait(1)
-            continue
-        end
-        
-        scanBattleGUI()
-        
-        if not BattleData.InBattle then
-            task.wait(0.5)
-            continue
-        end
-        
-        -- Try to use enabled moves
-        local usedMove = false
-        for i = 1, 4 do
-            if Settings.EnabledMoves[i] and BattleData.MoveButtons[i] then
-                local button = BattleData.MoveButtons[i]
-                
-                if button.Parent and button.Visible and button.Active ~= false then
-                    if clickButton(button) then
-                        print("[Auto Attack] Used move", i)
-                        usedMove = true
-                        task.wait(Settings.AttackDelay)
-                        break
-                    end
-                end
-            end
-        end
-        
-        if not usedMove then
-            task.wait(0.5)
-        end
-    end
-end
-
--- Auto run logic
-local function autoRunLoop()
-    while true do
-        task.wait(0.1)
-        
-        if not Settings.AutoRun then
-            task.wait(1)
-            continue
-        end
-        
-        scanBattleGUI()
-        
-        if not BattleData.InBattle then
-            task.wait(0.5)
-            continue
-        end
-        
-        -- Try to click run button
-        if BattleData.RunButton then
-            local button = BattleData.RunButton
+        if Settings.EnabledMoves[i] and BattleData.MoveButtons[i] then
+            local button = BattleData.MoveButtons[i]
             
-            if button.Parent and button.Visible and button.Active ~= false then
+            if button.Parent and button.Visible then
                 if clickButton(button) then
-                    print("[Auto Run] Clicked run button")
-                    task.wait(2) -- Wait before trying again
+                    print("[Auto Attack] Clicked Move", i, "-", button.Text)
+                    task.wait(Settings.AttackDelay)
+                    break -- Only use one move per turn
+                else
+                    warn("[Auto Attack] Failed to click Move", i)
                 end
             end
         end
-        
-        task.wait(1)
     end
 end
 
--- Start background loops
-task.spawn(autoAttackLoop)
-task.spawn(autoRunLoop)
+-- Perform auto run
+function performAutoRun()
+    if not BattleData.InBattle or not Settings.AutoRun then return end
+    
+    if BattleData.RunButton then
+        local button = BattleData.RunButton
+        
+        if button.Parent and button.Visible then
+            if clickButton(button) then
+                print("[Auto Run] Clicked Run button")
+                BattleData.InBattle = false
+            else
+                warn("[Auto Run] Failed to click Run button")
+            end
+        end
+    else
+        warn("[Auto Run] Run button not found")
+    end
+end
 
 -- Create GUI
 local ScreenGui = Instance.new("ScreenGui")
@@ -457,12 +468,10 @@ task.spawn(function()
     while ScreenGui.Parent do
         task.wait(0.5)
         
-        scanBattleGUI()
-        
         local status = "Status:\n"
         status = status .. "In Battle: " .. (BattleData.InBattle and "YES" or "NO") .. "\n"
-        status = status .. "Moves Found: " .. tostring(#BattleData.MoveButtons) .. "/4\n"
-        status = status .. "Run Button: " .. (BattleData.RunButton and "Found" or "Not Found")
+        status = status .. "Fight Button: " .. (BattleData.FightButton and "Found" or "Not Found") .. "\n"
+        status = status .. "Moves Found: " .. #BattleData.MoveButtons .. "/4"
         
         StatusLabel.Text = status
     end
@@ -481,8 +490,7 @@ end
 print("=================================")
 print("Auto Battle GUI Loaded!")
 print("=================================")
-print("- Auto Attack: Automatically uses enabled moves")
-print("- Auto Run: Automatically flees from battles")
-print("- Toggle moves 1-4 to select which to use")
-print("- Script runs continuously in background")
+print("- Listening for StartBattle event")
+print("- Will auto-click Fight + Moves")
+print("- Move selection: Left to Right (1-4)")
 print("=================================")
