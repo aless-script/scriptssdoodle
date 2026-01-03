@@ -1,24 +1,41 @@
 -- Doodle World Auto Battle Script
 -- Wait for game to load
+repeat task.wait() until game:IsLoaded()
+
 if game.GameId == 0 then
     game:GetPropertyChangedSignal("GameId"):Wait()
 end
+
+-- Check if it's Doodle World
 if game.GameId ~= 1775919872 then
+    warn("This script is only for Doodle World!")
     return
-end
-if not game:IsLoaded() then
-    game.Loaded:Wait()
 end
 
 local Players = game:GetService("Players")
 local Player = Players.LocalPlayer
-if Player == nil then
+
+if not Player then
     Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
     Player = Players.LocalPlayer
 end
 
-local Packer = Player:WaitForChild("Packer")
-local Client = require(Packer:WaitForChild("Client"))
+-- Wait for Packer
+local Packer = Player:WaitForChild("Packer", 30)
+if not Packer then
+    warn("Packer not found!")
+    return
+end
+
+local ClientModule = Packer:WaitForChild("Client", 30)
+if not ClientModule then
+    warn("Client module not found!")
+    return
+end
+
+local Client = require(ClientModule)
+
+print("Client loaded successfully!")
 
 -- Global Settings
 _G.AutoBattle = _G.AutoBattle or {
@@ -29,122 +46,152 @@ _G.AutoBattle = _G.AutoBattle or {
 
 -- Helper Functions
 local function EndTurn()
-    local UpValues = getupvalues(Client.Network.BindEvent)
-    for i,v in pairs(UpValues) do
-        if typeof(v) == "table" and v["ForceEnd"] ~= nil then
-            v.ForceEnd()
+    local success, err = pcall(function()
+        local UpValues = getupvalues(Client.Network.BindEvent)
+        for i,v in pairs(UpValues) do
+            if typeof(v) == "table" and v["ForceEnd"] ~= nil then
+                v.ForceEnd()
+                break
+            end
         end
+    end)
+    if not success then
+        warn("EndTurn error:", err)
     end
 end
 
 local function GetOutDoodle()
-    local Match = nil
-    local PartyPosition
-    local MainGui = Player.PlayerGui:WaitForChild("MainGui")
-    local BattleGui = MainGui:WaitForChild("MainBattle")
-    if Client.Battle["CurrentBattle"] == nil then
-        return nil
-    end
-    local InfoHolder = BattleGui:WaitForChild("BackBox")
-    local NameLabel = InfoHolder:WaitForChild("NameLabel")
-    local LevelLabel = InfoHolder:WaitForChild("LevelLabel")
-    local HealthLabel = InfoHolder:WaitForChild("Health"):WaitForChild("HealthNumber")
-    local Party = Client.Battle.CurrentBattle["Player1Party"]
-    local MaxHealth = string.split(HealthLabel.Text,"/")
-    MaxHealth = string.gsub(MaxHealth[2]," ","")
-    MaxHealth = tonumber(MaxHealth)
-    local Level = string.gsub(LevelLabel.Text,"Lv. ","")
-    Level = tonumber(Level)
-    
-    for i,v in pairs(Party) do
-        local HealthMatch = v.Stats.hp == MaxHealth
-        local NameMatch = v.Name == NameLabel.Text or v.Doodle.Nickname == NameLabel.Text
-        local LevelMatch = v.Level == Level
-        if HealthMatch and NameMatch and LevelMatch then
-            Match = v
-            PartyPosition = i
-            break
-        end
-    end
-    
-    if Match == nil then
+    local success, result = pcall(function()
+        local MainGui = Player.PlayerGui:FindFirstChild("MainGui")
+        if not MainGui then return nil end
+        
+        local BattleGui = MainGui:FindFirstChild("MainBattle")
+        if not BattleGui then return nil end
+        
+        if not Client.Battle.CurrentBattle then return nil end
+        
+        local InfoHolder = BattleGui:FindFirstChild("BackBox")
+        if not InfoHolder then return nil end
+        
+        local NameLabel = InfoHolder:FindFirstChild("NameLabel")
+        local LevelLabel = InfoHolder:FindFirstChild("LevelLabel")
+        local Health = InfoHolder:FindFirstChild("Health")
+        if not NameLabel or not LevelLabel or not Health then return nil end
+        
+        local HealthLabel = Health:FindFirstChild("HealthNumber")
+        if not HealthLabel then return nil end
+        
+        local Party = Client.Battle.CurrentBattle["Player1Party"]
+        local MaxHealth = string.split(HealthLabel.Text,"/")
+        MaxHealth = string.gsub(MaxHealth[2]," ","")
+        MaxHealth = tonumber(MaxHealth)
+        local Level = string.gsub(LevelLabel.Text,"Lv. ","")
+        Level = tonumber(Level)
+        
         for i,v in pairs(Party) do
-            if v.Name == NameLabel.Text or v.Doodle.Nickname == NameLabel.Text then
-                Match = v
-                PartyPosition = i
-                break
-            end
-        end
-    end
-    return Match, PartyPosition
-end
-
-local function GetEnemyDoodle()
-    local Match = nil
-    local MainGui = Player.PlayerGui:WaitForChild("MainGui")
-    local BattleGui = MainGui:WaitForChild("MainBattle")
-    local InfoHolder = BattleGui:WaitForChild("FrontBox")
-    local NameLabel = InfoHolder:WaitForChild("NameLabel")
-    local YourParty = Client.Network:get("PlayerData","GetParty")
-    local Party
-    
-    if Client.Battle["CurrentBattle"] == nil then
-        return nil
-    end
-    
-    if Client.Battle.CurrentBattle["Player2Party"][1].ID ~= YourParty[1].ID then
-        Party = Client.Battle.CurrentBattle["Player2Party"]
-    else
-        Party = Client.Battle.CurrentBattle["Player1Party"]
-    end
-    
-    for i,v in pairs(Party) do
-        if v.Name == NameLabel.Text or v.Doodle.Nickname == NameLabel.Text then
-            Match = v
-            break
-        end
-    end
-    return Match
-end
-
-local function SwitchDoodle(YourDoodle)
-    local MainGui = Player.PlayerGui:WaitForChild("MainGui")
-    local PartyGui = MainGui:WaitForChild("PartyUI")
-    local YourParty = Client.Battle.CurrentBattle["Player1Party"]
-    local SelectedDoodle = nil
-    
-    for i,v in pairs(YourParty) do
-        if SelectedDoodle == nil and v.ID ~= nil and v.ID ~= YourDoodle.ID then
-            if PartyGui:FindFirstChild("Party"..tostring(i)) then
-                local PartyMemberHolder = PartyGui:FindFirstChild("Party"..tostring(i))
-                if PartyMemberHolder:FindFirstChild("Health") and PartyMemberHolder.Health:FindFirstChild("HealthNumber") then
-                    local CurrentHealth = string.split(PartyMemberHolder.Health.HealthNumber.Text,"/")
-                    CurrentHealth = string.gsub(CurrentHealth[1]," ","")
-                    CurrentHealth = tonumber(CurrentHealth)
-                    if CurrentHealth ~= 0 then
-                        SelectedDoodle = v
-                        break
+            if v.Stats and v.Stats.hp == MaxHealth then
+                if v.Name == NameLabel.Text or (v.Doodle and v.Doodle.Nickname == NameLabel.Text) then
+                    if v.Level == Level then
+                        return v, i
                     end
                 end
             end
         end
-    end
+        
+        for i,v in pairs(Party) do
+            if v.Name == NameLabel.Text or (v.Doodle and v.Doodle.Nickname == NameLabel.Text) then
+                return v, i
+            end
+        end
+        
+        return nil
+    end)
     
-    if SelectedDoodle then
-        Client.Network:post("ForceSwitch",{
-            ["Target"] = SelectedDoodle.ID,
-            ["ActionType"] = "ForceSwitch",
-            ["User"] = YourDoodle.ID,
-        })
-        EndTurn()
-        repeat wait() until PartyGui.Visible == false
+    if success then
+        return result
     end
+    return nil
+end
+
+local function GetEnemyDoodle()
+    local success, result = pcall(function()
+        local MainGui = Player.PlayerGui:FindFirstChild("MainGui")
+        if not MainGui then return nil end
+        
+        local BattleGui = MainGui:FindFirstChild("MainBattle")
+        if not BattleGui then return nil end
+        
+        if not Client.Battle.CurrentBattle then return nil end
+        
+        local InfoHolder = BattleGui:FindFirstChild("FrontBox")
+        if not InfoHolder then return nil end
+        
+        local NameLabel = InfoHolder:FindFirstChild("NameLabel")
+        if not NameLabel then return nil end
+        
+        local YourParty = Client.Network:get("PlayerData","GetParty")
+        local Party
+        
+        if Client.Battle.CurrentBattle["Player2Party"][1].ID ~= YourParty[1].ID then
+            Party = Client.Battle.CurrentBattle["Player2Party"]
+        else
+            Party = Client.Battle.CurrentBattle["Player1Party"]
+        end
+        
+        for i,v in pairs(Party) do
+            if v.Name == NameLabel.Text or (v.Doodle and v.Doodle.Nickname == NameLabel.Text) then
+                return v
+            end
+        end
+        return nil
+    end)
+    
+    if success then
+        return result
+    end
+    return nil
+end
+
+local function SwitchDoodle(YourDoodle)
+    pcall(function()
+        local MainGui = Player.PlayerGui:WaitForChild("MainGui")
+        local PartyGui = MainGui:WaitForChild("PartyUI")
+        local YourParty = Client.Battle.CurrentBattle["Player1Party"]
+        local SelectedDoodle = nil
+        
+        for i,v in pairs(YourParty) do
+            if not SelectedDoodle and v.ID and v.ID ~= YourDoodle.ID then
+                if PartyGui:FindFirstChild("Party"..tostring(i)) then
+                    local PartyMemberHolder = PartyGui:FindFirstChild("Party"..tostring(i))
+                    if PartyMemberHolder:FindFirstChild("Health") and PartyMemberHolder.Health:FindFirstChild("HealthNumber") then
+                        local CurrentHealth = string.split(PartyMemberHolder.Health.HealthNumber.Text,"/")
+                        CurrentHealth = string.gsub(CurrentHealth[1]," ","")
+                        CurrentHealth = tonumber(CurrentHealth)
+                        if CurrentHealth ~= 0 then
+                            SelectedDoodle = v
+                            break
+                        end
+                    end
+                end
+            end
+        end
+        
+        if SelectedDoodle then
+            Client.Network:post("ForceSwitch",{
+                ["Target"] = SelectedDoodle.ID,
+                ["ActionType"] = "ForceSwitch",
+                ["User"] = YourDoodle.ID,
+            })
+            EndTurn()
+            repeat wait() until PartyGui.Visible == false
+        end
+    end)
 end
 
 local function GetBestMove(YourDoodle, EnemyDoodle)
     -- First, try to use selected moves in order
     for i = 1, 4 do
-        if _G.AutoBattle.SelectedMoves[i] ~= nil then
+        if _G.AutoBattle.SelectedMoves[i] then
             for _, move in ipairs(YourDoodle.Moves) do
                 if move.Name == _G.AutoBattle.SelectedMoves[i] then
                     return move.Name
@@ -156,18 +203,23 @@ local function GetBestMove(YourDoodle, EnemyDoodle)
     -- If no selected moves available, find best matchup
     local BestMatchup = nil
     local HighestMultiplier = -100
-    for i,v in pairs(YourDoodle.Moves) do
-        local MoveData = Client.ClientDatabase:GetMoveData(v.Name)
-        local MoveType = MoveData.Type
-        local Multiplier, Message = Client.Typings:GetEffectiveness(YourDoodle, EnemyDoodle, MoveType)
-        if MoveData.Power ~= nil and Multiplier > HighestMultiplier then
-            HighestMultiplier = Multiplier
-            BestMatchup = v.Name
+    
+    pcall(function()
+        for i,v in pairs(YourDoodle.Moves) do
+            local MoveData = Client.ClientDatabase:GetMoveData(v.Name)
+            if MoveData then
+                local MoveType = MoveData.Type
+                local Multiplier = Client.Typings:GetEffectiveness(YourDoodle, EnemyDoodle, MoveType)
+                if MoveData.Power and Multiplier > HighestMultiplier then
+                    HighestMultiplier = Multiplier
+                    BestMatchup = v.Name
+                end
+            end
         end
-    end
+    end)
     
     -- If still no move found, use random
-    if BestMatchup == nil and #YourDoodle.Moves > 0 then
+    if not BestMatchup and YourDoodle.Moves and #YourDoodle.Moves > 0 then
         BestMatchup = YourDoodle.Moves[math.random(1, #YourDoodle.Moves)].Name
     end
     
@@ -179,77 +231,76 @@ local function AutoBattleLoop()
     task.spawn(function()
         while true do
             task.wait(0.5)
+            
             if not _G.AutoBattle.AutoAttack and not _G.AutoBattle.AutoRun then
                 continue
             end
             
-            local MainGui = Player.PlayerGui:FindFirstChild("MainGui")
-            if not MainGui then continue end
-            
-            local BattleGui = MainGui:FindFirstChild("MainBattle")
-            if not BattleGui then continue end
-            
-            local BottomBar = BattleGui:FindFirstChild("BottomBar")
-            if not BottomBar then continue end
-            
-            local ActionBar = BottomBar:FindFirstChild("Actions")
-            local PartyGui = MainGui:FindFirstChild("PartyUI")
-            
-            if Client.Battle.CurrentBattle == nil then
-                continue
-            end
-            
-            if PartyGui and PartyGui.Visible then
-                local YourDoodle = GetOutDoodle()
-                if YourDoodle then
-                    SwitchDoodle(YourDoodle)
-                end
-            elseif ActionBar and ActionBar.Visible then
-                local YourDoodle = GetOutDoodle()
-                local EnemyDoodle = GetEnemyDoodle()
+            pcall(function()
+                local MainGui = Player.PlayerGui:FindFirstChild("MainGui")
+                if not MainGui then return end
                 
-                if not YourDoodle or not EnemyDoodle then
-                    continue
-                end
+                local BattleGui = MainGui:FindFirstChild("MainBattle")
+                if not BattleGui then return end
                 
-                if _G.AutoBattle.AutoRun then
-                    -- Auto Run
-                    Client.Network:post("BattleAction",{
-                        [1] = {
-                            ["Target"] = "RunAway",
-                            ["ActionType"] = "Run",
-                            ["User"] = YourDoodle.ID,
-                        }
-                    })
-                    ActionBar.Visible = false
-                    EndTurn()
-                elseif _G.AutoBattle.AutoAttack then
-                    -- Auto Attack with best move
-                    local MoveToUse = GetBestMove(YourDoodle, EnemyDoodle)
+                local BottomBar = BattleGui:FindFirstChild("BottomBar")
+                if not BottomBar then return end
+                
+                local ActionBar = BottomBar:FindFirstChild("Actions")
+                local PartyGui = MainGui:FindFirstChild("PartyUI")
+                
+                if not Client.Battle.CurrentBattle then return end
+                
+                if PartyGui and PartyGui.Visible then
+                    local YourDoodle = GetOutDoodle()
+                    if YourDoodle then
+                        SwitchDoodle(YourDoodle)
+                    end
+                elseif ActionBar and ActionBar.Visible then
+                    local YourDoodle = GetOutDoodle()
+                    local EnemyDoodle = GetEnemyDoodle()
                     
-                    if MoveToUse then
+                    if not YourDoodle or not EnemyDoodle then return end
+                    
+                    if _G.AutoBattle.AutoRun then
                         Client.Network:post("BattleAction",{
                             [1] = {
-                                ["Target"] = EnemyDoodle.ID,
-                                ["ActionType"] = "Attack",
-                                ["Action"] = MoveToUse,
+                                ["Target"] = "RunAway",
+                                ["ActionType"] = "Run",
                                 ["User"] = YourDoodle.ID,
                             }
                         })
                         ActionBar.Visible = false
                         EndTurn()
+                    elseif _G.AutoBattle.AutoAttack then
+                        local MoveToUse = GetBestMove(YourDoodle, EnemyDoodle)
+                        
+                        if MoveToUse then
+                            Client.Network:post("BattleAction",{
+                                [1] = {
+                                    ["Target"] = EnemyDoodle.ID,
+                                    ["ActionType"] = "Attack",
+                                    ["Action"] = MoveToUse,
+                                    ["User"] = YourDoodle.ID,
+                                }
+                            })
+                            ActionBar.Visible = false
+                            EndTurn()
+                        end
                     end
                 end
-            end
+            end)
         end
     end)
 end
 
 -- Create GUI
+print("Creating GUI...")
+
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "AutoBattleGui"
 ScreenGui.ResetOnSpawn = false
-ScreenGui.Parent = Player:WaitForChild("PlayerGui")
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
@@ -354,7 +405,7 @@ local function CreateDropdown(parent, position, index)
     Arrow.Font = Enum.Font.Gotham
     Arrow.Parent = Dropdown
     
-    local DropdownList = Instance.new("Frame")
+    local DropdownList = Instance.new("ScrollingFrame")
     DropdownList.Size = UDim2.new(1, 0, 0, 0)
     DropdownList.Position = UDim2.new(0, 0, 1, 5)
     DropdownList.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
@@ -362,6 +413,7 @@ local function CreateDropdown(parent, position, index)
     DropdownList.Visible = false
     DropdownList.ClipsDescendants = true
     DropdownList.ZIndex = 10
+    DropdownList.ScrollBarThickness = 6
     DropdownList.Parent = Dropdown
     
     local ListCorner = Instance.new("UICorner")
@@ -398,31 +450,34 @@ local function CreateDropdown(parent, position, index)
         end)
         
         -- Get current doodle moves
-        if Client.Battle.CurrentBattle then
-            local YourDoodle = GetOutDoodle()
-            if YourDoodle and YourDoodle.Moves then
-                for _, move in ipairs(YourDoodle.Moves) do
-                    local MoveBtn = Instance.new("TextButton")
-                    MoveBtn.Size = UDim2.new(1, 0, 0, 30)
-                    MoveBtn.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
-                    MoveBtn.BorderSizePixel = 0
-                    MoveBtn.Text = move.Name
-                    MoveBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-                    MoveBtn.TextSize = 13
-                    MoveBtn.Font = Enum.Font.Gotham
-                    MoveBtn.Parent = DropdownList
-                    
-                    MoveBtn.MouseButton1Click:Connect(function()
-                        _G.AutoBattle.SelectedMoves[index] = move.Name
-                        DropButton.Text = "Move " .. index .. ": " .. move.Name
-                        DropdownList.Visible = false
-                    end)
+        pcall(function()
+            if Client.Battle.CurrentBattle then
+                local YourDoodle = GetOutDoodle()
+                if YourDoodle and YourDoodle.Moves then
+                    for _, move in ipairs(YourDoodle.Moves) do
+                        local MoveBtn = Instance.new("TextButton")
+                        MoveBtn.Size = UDim2.new(1, 0, 0, 30)
+                        MoveBtn.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
+                        MoveBtn.BorderSizePixel = 0
+                        MoveBtn.Text = move.Name
+                        MoveBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                        MoveBtn.TextSize = 13
+                        MoveBtn.Font = Enum.Font.Gotham
+                        MoveBtn.Parent = DropdownList
+                        
+                        MoveBtn.MouseButton1Click:Connect(function()
+                            _G.AutoBattle.SelectedMoves[index] = move.Name
+                            DropButton.Text = "Move " .. index .. ": " .. move.Name
+                            DropdownList.Visible = false
+                        end)
+                    end
                 end
             end
-        end
+        end)
         
         local contentSize = ListLayout.AbsoluteContentSize.Y
-        DropdownList.Size = UDim2.new(1, 0, 0, math.min(contentSize, 150))
+        DropdownList.CanvasSize = UDim2.new(0, 0, 0, contentSize)
+        DropdownList.Size = UDim2.new(1, 0, 0, math.min(contentSize + 5, 150))
     end
     
     DropButton.MouseButton1Click:Connect(function()
@@ -504,6 +559,11 @@ game:GetService("UserInputService").InputChanged:Connect(function(input)
         update(input)
     end
 end)
+
+-- Parent GUI to PlayerGui
+ScreenGui.Parent = Player:WaitForChild("PlayerGui")
+
+print("GUI Created successfully!")
 
 -- Start Auto Battle Loop
 AutoBattleLoop()
