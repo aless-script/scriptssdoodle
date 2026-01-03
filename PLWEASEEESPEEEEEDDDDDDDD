@@ -1,0 +1,496 @@
+-- Auto Battle Script with GUI Interaction
+-- Detects battles via StartBattle event and clicks Fight button + moves
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+-- Wait for remotes
+task.wait(2)
+local Remotes = LocalPlayer:WaitForChild("Remotes", 10)
+if not Remotes then 
+    warn("[Auto Battle] Remotes not found!")
+    return 
+end
+
+local StartBattle = Remotes:WaitForChild("StartBattle", 5)
+if not StartBattle then
+    warn("[Auto Battle] StartBattle event not found!")
+    return
+end
+
+-- Initialize global storage
+if not _G.AutoBattle then
+    _G.AutoBattle = {
+        Settings = {
+            AutoAttack = false,
+            AutoRun = false,
+            EnabledMoves = {
+                [1] = true,
+                [2] = true,
+                [3] = true,
+                [4] = true
+            },
+            AttackDelay = 1.5
+        },
+        BattleData = {
+            InBattle = false,
+            FightButton = nil,
+            MoveButtons = {},
+            RunButton = nil
+        }
+    }
+end
+
+local Settings = _G.AutoBattle.Settings
+local BattleData = _G.AutoBattle.BattleData
+
+-- Function to click a GUI button
+local function clickButton(button)
+    if not button or not button.Parent then
+        return false
+    end
+    
+    local success = pcall(function()
+        -- Method 1: Fire all connections
+        for _, signal in pairs({"MouseButton1Click", "MouseButton1Down", "Activated"}) do
+            if button[signal] then
+                for _, connection in pairs(getconnections(button[signal])) do
+                    connection:Fire()
+                end
+            end
+        end
+        
+        -- Method 2: Simulate mouse click
+        task.spawn(function()
+            local pos = button.AbsolutePosition
+            local size = button.AbsoluteSize
+            local x = pos.X + size.X/2
+            local y = pos.Y + size.Y/2
+            
+            VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
+            task.wait(0.05)
+            VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
+        end)
+    end)
+    
+    return success
+end
+
+-- Scan for battle GUI elements
+local function scanBattleGUI()
+    local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not PlayerGui then return end
+    
+    BattleData.FightButton = nil
+    BattleData.MoveButtons = {}
+    BattleData.RunButton = nil
+    
+    -- Scan all GUI elements
+    for _, gui in pairs(PlayerGui:GetDescendants()) do
+        if not gui:IsA("TextButton") or not gui.Visible then continue end
+        
+        local text = gui.Text:lower()
+        local name = gui.Name:lower()
+        
+        -- Find Fight button
+        if text == "fight" or name == "fight" then
+            BattleData.FightButton = gui
+            print("[Auto Battle] Found Fight button:", gui:GetFullName())
+        end
+        
+        -- Find Run button
+        if text:match("run") or text:match("flee") or name:match("run") then
+            BattleData.RunButton = gui
+            print("[Auto Battle] Found Run button:", gui:GetFullName())
+        end
+    end
+    
+    -- After finding Fight button, look for move buttons in same parent
+    if BattleData.FightButton then
+        local parent = BattleData.FightButton.Parent
+        if parent then
+            -- Look for siblings that are likely move buttons
+            local moveButtons = {}
+            for _, child in pairs(parent:GetChildren()) do
+                if child:IsA("TextButton") and child ~= BattleData.FightButton and child.Visible then
+                    -- Skip run button
+                    local childText = child.Text:lower()
+                    if not childText:match("run") and not childText:match("flee") and not childText:match("fight") then
+                        table.insert(moveButtons, child)
+                    end
+                end
+            end
+            
+            -- Sort by position (left to right)
+            table.sort(moveButtons, function(a, b)
+                return a.AbsolutePosition.X < b.AbsolutePosition.X
+            end)
+            
+            -- Assign to slots 1-4
+            for i = 1, math.min(4, #moveButtons) do
+                BattleData.MoveButtons[i] = moveButtons[i]
+                print("[Auto Battle] Found Move", i, ":", moveButtons[i].Text, moveButtons[i]:GetFullName())
+            end
+        end
+    end
+end
+
+-- Battle start detection
+StartBattle.OnClientEvent:Connect(function(battleData)
+    BattleData.InBattle = true
+    print("[Auto Battle] Battle started!")
+    print("[Auto Battle] Battle Data:", battleData)
+    
+    -- Scan for GUI elements
+    task.wait(0.5) -- Wait for GUI to load
+    scanBattleGUI()
+    
+    -- If auto attack is on, start attacking
+    if Settings.AutoAttack then
+        task.spawn(function()
+            task.wait(1) -- Wait a bit for GUI to be ready
+            performAutoAttack()
+        end)
+    end
+    
+    -- If auto run is on, run away
+    if Settings.AutoRun then
+        task.spawn(function()
+            task.wait(1)
+            performAutoRun()
+        end)
+    end
+end)
+
+-- Check if we left battle (detect battle end)
+task.spawn(function()
+    while true do
+        task.wait(1)
+        
+        if BattleData.InBattle then
+            -- Check if battle GUI still exists
+            local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
+            if PlayerGui then
+                local stillInBattle = false
+                for _, gui in pairs(PlayerGui:GetDescendants()) do
+                    if gui:IsA("TextButton") then
+                        local text = gui.Text:lower()
+                        if text == "fight" then
+                            stillInBattle = true
+                            break
+                        end
+                    end
+                end
+                
+                if not stillInBattle then
+                    BattleData.InBattle = false
+                    print("[Auto Battle] Battle ended!")
+                end
+            end
+        end
+    end
+end)
+
+-- Perform auto attack
+function performAutoAttack()
+    if not BattleData.InBattle or not Settings.AutoAttack then return end
+    
+    -- First click Fight button
+    if BattleData.FightButton then
+        if clickButton(BattleData.FightButton) then
+            print("[Auto Attack] Clicked Fight button")
+            task.wait(0.5) -- Wait for move selection screen
+            
+            -- Re-scan for move buttons after clicking fight
+            scanBattleGUI()
+        else
+            warn("[Auto Attack] Failed to click Fight button")
+            return
+        end
+    else
+        warn("[Auto Attack] Fight button not found")
+        return
+    end
+    
+    -- Click enabled moves (left to right)
+    for i = 1, 4 do
+        if Settings.EnabledMoves[i] and BattleData.MoveButtons[i] then
+            local button = BattleData.MoveButtons[i]
+            
+            if button.Parent and button.Visible then
+                if clickButton(button) then
+                    print("[Auto Attack] Clicked Move", i, "-", button.Text)
+                    task.wait(Settings.AttackDelay)
+                    break -- Only use one move per turn
+                else
+                    warn("[Auto Attack] Failed to click Move", i)
+                end
+            end
+        end
+    end
+end
+
+-- Perform auto run
+function performAutoRun()
+    if not BattleData.InBattle or not Settings.AutoRun then return end
+    
+    if BattleData.RunButton then
+        local button = BattleData.RunButton
+        
+        if button.Parent and button.Visible then
+            if clickButton(button) then
+                print("[Auto Run] Clicked Run button")
+                BattleData.InBattle = false
+            else
+                warn("[Auto Run] Failed to click Run button")
+            end
+        end
+    else
+        warn("[Auto Run] Run button not found")
+    end
+end
+
+-- Create GUI
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "AutoBattleGUI"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+-- Main Frame
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 300, 0, 360)
+MainFrame.Position = UDim2.new(0.5, -150, 0.5, -180)
+MainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 10)
+UICorner.Parent = MainFrame
+
+-- Title Bar
+local TitleBar = Instance.new("Frame")
+TitleBar.Name = "TitleBar"
+TitleBar.Size = UDim2.new(1, 0, 0, 40)
+TitleBar.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
+TitleBar.BorderSizePixel = 0
+TitleBar.Parent = MainFrame
+
+local TitleCorner = Instance.new("UICorner")
+TitleCorner.CornerRadius = UDim.new(0, 10)
+TitleCorner.Parent = TitleBar
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -80, 1, 0)
+Title.Position = UDim2.new(0, 10, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "Auto Battle"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 18
+Title.Font = Enum.Font.GothamBold
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = TitleBar
+
+-- Close Button
+local CloseButton = Instance.new("TextButton")
+CloseButton.Size = UDim2.new(0, 30, 0, 30)
+CloseButton.Position = UDim2.new(1, -35, 0, 5)
+CloseButton.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+CloseButton.Text = "X"
+CloseButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseButton.TextSize = 16
+CloseButton.Font = Enum.Font.GothamBold
+CloseButton.BorderSizePixel = 0
+CloseButton.Parent = TitleBar
+
+local CloseCorner = Instance.new("UICorner")
+CloseCorner.CornerRadius = UDim.new(0, 6)
+CloseCorner.Parent = CloseButton
+
+CloseButton.MouseButton1Click:Connect(function()
+    Settings.AutoAttack = false
+    Settings.AutoRun = false
+    ScreenGui:Destroy()
+end)
+
+-- Content Frame
+local ContentFrame = Instance.new("Frame")
+ContentFrame.Size = UDim2.new(1, -20, 1, -60)
+ContentFrame.Position = UDim2.new(0, 10, 0, 50)
+ContentFrame.BackgroundTransparency = 1
+ContentFrame.Parent = MainFrame
+
+-- Function to create toggle button
+local function createToggle(name, position, callback)
+    local ToggleFrame = Instance.new("Frame")
+    ToggleFrame.Size = UDim2.new(1, 0, 0, 40)
+    ToggleFrame.Position = position
+    ToggleFrame.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
+    ToggleFrame.BorderSizePixel = 0
+    ToggleFrame.Parent = ContentFrame
+    
+    local ToggleCorner = Instance.new("UICorner")
+    ToggleCorner.CornerRadius = UDim.new(0, 8)
+    ToggleCorner.Parent = ToggleFrame
+    
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(0.6, 0, 1, 0)
+    Label.Position = UDim2.new(0, 10, 0, 0)
+    Label.BackgroundTransparency = 1
+    Label.Text = name
+    Label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Label.TextSize = 14
+    Label.Font = Enum.Font.Gotham
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Parent = ToggleFrame
+    
+    local ToggleButton = Instance.new("TextButton")
+    ToggleButton.Size = UDim2.new(0, 60, 0, 25)
+    ToggleButton.Position = UDim2.new(1, -70, 0.5, -12.5)
+    ToggleButton.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+    ToggleButton.Text = "OFF"
+    ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    ToggleButton.TextSize = 12
+    ToggleButton.Font = Enum.Font.GothamBold
+    ToggleButton.BorderSizePixel = 0
+    ToggleButton.Parent = ToggleFrame
+    
+    local ButtonCorner = Instance.new("UICorner")
+    ButtonCorner.CornerRadius = UDim.new(0, 6)
+    ButtonCorner.Parent = ToggleButton
+    
+    local isEnabled = false
+    
+    ToggleButton.MouseButton1Click:Connect(function()
+        isEnabled = not isEnabled
+        ToggleButton.Text = isEnabled and "ON" or "OFF"
+        ToggleButton.BackgroundColor3 = isEnabled and Color3.fromRGB(50, 220, 100) or Color3.fromRGB(220, 50, 50)
+        callback(isEnabled)
+    end)
+    
+    return ToggleButton
+end
+
+-- Function to create move toggle
+local function createMoveToggle(moveNum, position)
+    local MoveFrame = Instance.new("Frame")
+    MoveFrame.Size = UDim2.new(0.48, 0, 0, 35)
+    MoveFrame.Position = position
+    MoveFrame.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
+    MoveFrame.BorderSizePixel = 0
+    MoveFrame.Parent = ContentFrame
+    
+    local MoveCorner = Instance.new("UICorner")
+    MoveCorner.CornerRadius = UDim.new(0, 8)
+    MoveCorner.Parent = MoveFrame
+    
+    local MoveButton = Instance.new("TextButton")
+    MoveButton.Size = UDim2.new(1, -10, 1, -10)
+    MoveButton.Position = UDim2.new(0, 5, 0, 5)
+    MoveButton.BackgroundColor3 = Color3.fromRGB(50, 220, 100)
+    MoveButton.Text = "Move " .. moveNum
+    MoveButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    MoveButton.TextSize = 12
+    MoveButton.Font = Enum.Font.GothamBold
+    MoveButton.BorderSizePixel = 0
+    MoveButton.Parent = MoveFrame
+    
+    local MoveButtonCorner = Instance.new("UICorner")
+    MoveButtonCorner.CornerRadius = UDim.new(0, 6)
+    MoveButtonCorner.Parent = MoveButton
+    
+    MoveButton.MouseButton1Click:Connect(function()
+        Settings.EnabledMoves[moveNum] = not Settings.EnabledMoves[moveNum]
+        MoveButton.BackgroundColor3 = Settings.EnabledMoves[moveNum] and Color3.fromRGB(50, 220, 100) or Color3.fromRGB(220, 50, 50)
+    end)
+end
+
+-- Create toggles
+createToggle("Auto Attack", UDim2.new(0, 0, 0, 0), function(enabled)
+    Settings.AutoAttack = enabled
+    print("[Auto Attack]", enabled and "Enabled" or "Disabled")
+end)
+
+createToggle("Auto Run", UDim2.new(0, 0, 0, 50), function(enabled)
+    Settings.AutoRun = enabled
+    print("[Auto Run]", enabled and "Enabled" or "Disabled")
+end)
+
+-- Moves Label
+local MovesLabel = Instance.new("TextLabel")
+MovesLabel.Size = UDim2.new(1, 0, 0, 30)
+MovesLabel.Position = UDim2.new(0, 0, 0, 110)
+MovesLabel.BackgroundTransparency = 1
+MovesLabel.Text = "Select Moves to Auto-Use:"
+MovesLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+MovesLabel.TextSize = 14
+MovesLabel.Font = Enum.Font.GothamBold
+MovesLabel.TextXAlignment = Enum.TextXAlignment.Left
+MovesLabel.Parent = ContentFrame
+
+-- Create move toggles (2x2 grid)
+createMoveToggle(1, UDim2.new(0, 0, 0, 145))
+createMoveToggle(2, UDim2.new(0.52, 0, 0, 145))
+createMoveToggle(3, UDim2.new(0, 0, 0, 190))
+createMoveToggle(4, UDim2.new(0.52, 0, 0, 190))
+
+-- Status Display
+local StatusFrame = Instance.new("Frame")
+StatusFrame.Size = UDim2.new(1, 0, 0, 60)
+StatusFrame.Position = UDim2.new(0, 0, 0, 240)
+StatusFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+StatusFrame.BorderSizePixel = 0
+StatusFrame.Parent = ContentFrame
+
+local StatusCorner = Instance.new("UICorner")
+StatusCorner.CornerRadius = UDim.new(0, 8)
+StatusCorner.Parent = StatusFrame
+
+local StatusLabel = Instance.new("TextLabel")
+StatusLabel.Size = UDim2.new(1, -10, 1, -10)
+StatusLabel.Position = UDim2.new(0, 5, 0, 5)
+StatusLabel.BackgroundTransparency = 1
+StatusLabel.Text = "Status: Waiting for battle..."
+StatusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+StatusLabel.TextSize = 11
+StatusLabel.Font = Enum.Font.Code
+StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+StatusLabel.TextYAlignment = Enum.TextYAlignment.Top
+StatusLabel.TextWrapped = true
+StatusLabel.Parent = StatusFrame
+
+-- Update status display
+task.spawn(function()
+    while ScreenGui.Parent do
+        task.wait(0.5)
+        
+        local status = "Status:\n"
+        status = status .. "In Battle: " .. (BattleData.InBattle and "YES" or "NO") .. "\n"
+        status = status .. "Fight Button: " .. (BattleData.FightButton and "Found" or "Not Found") .. "\n"
+        status = status .. "Moves Found: " .. #BattleData.MoveButtons .. "/4"
+        
+        StatusLabel.Text = status
+    end
+end)
+
+-- Parent GUI
+if gethui then
+    ScreenGui.Parent = gethui()
+elseif syn and syn.protect_gui then
+    syn.protect_gui(ScreenGui)
+    ScreenGui.Parent = game.CoreGui
+else
+    ScreenGui.Parent = game.CoreGui
+end
+
+print("=================================")
+print("Auto Battle GUI Loaded!")
+print("=================================")
+print("- Listening for StartBattle event")
+print("- Will auto-click Fight + Moves")
+print("- Move selection: Left to Right (1-4)")
+print("=================================")
