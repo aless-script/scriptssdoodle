@@ -1,508 +1,244 @@
--- Auto Battle Script with Automatic Info Gathering
--- Automatically detects targets, moves, and battle state
+-- Auto Battle Script with GUI Interaction
+-- Automatically clicks buttons and handles encounters
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local RunService = game:GetService("RunService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 
--- Wait for character and remotes to load
-local function waitForRemotes()
-    repeat task.wait() until LocalPlayer.Character
-    repeat task.wait() until LocalPlayer:FindFirstChild("Remotes")
+-- Wait for game to load
+task.wait(2)
+
+-- Initialize global storage
+if not _G.AutoBattle then
+    _G.AutoBattle = {
+        Settings = {
+            AutoAttack = false,
+            AutoRun = false,
+            EnabledMoves = {
+                [1] = true,
+                [2] = true,
+                [3] = true,
+                [4] = true
+            },
+            AttackDelay = 1.5
+        },
+        BattleData = {
+            InBattle = false,
+            MoveButtons = {},
+            RunButton = nil,
+            LastScan = 0
+        }
+    }
 end
 
-pcall(waitForRemotes)
+local Settings = _G.AutoBattle.Settings
+local BattleData = _G.AutoBattle.BattleData
 
-local Remotes = LocalPlayer.Remotes
-local BattleActionEvent = Remotes:WaitForChild("BattleAction")
-local RunAwayEvent = Remotes:WaitForChild("DudeWhyld")
-
--- Use _G for persistent storage
-_G.AutoBattleSettings = _G.AutoBattleSettings or {
-    AutoAttack = false,
-    AutoRun = false,
-    EnabledMoves = {
-        [1] = true,
-        [2] = true,
-        [3] = true,
-        [4] = true
-    },
-    AttackDelay = 0.5
-}
-
-_G.AutoBattleData = _G.AutoBattleData or {
-    InBattle = false,
-    CurrentMoves = {},
-    CurrentTarget = nil,
-    UserId = nil,
-    Enemies = {},
-    Location = nil,
-    Terrain = nil
-}
-
-local Settings = _G.AutoBattleSettings
-local BattleData = _G.AutoBattleData
-
--- Hook into BattleAction to capture data
-local OriginalFireServer
-local function hookBattleAction()
-    pcall(function()
-        OriginalFireServer = hookfunction(BattleActionEvent.FireServer, function(self, data, ...)
-            -- Capture battle data from outgoing requests
-            if data and type(data) == "table" and #data > 0 then
-                local action = data[1]
-                if action.User then
-                    BattleData.UserId = action.User
+-- Function to click a GUI button
+local function clickButton(button)
+    if not button or not button.Parent then
+        return false
+    end
+    
+    local success = pcall(function()
+        -- Method 1: Fire all connections
+        for _, signal in pairs({"MouseButton1Click", "MouseButton1Down", "Activated"}) do
+            if button[signal] then
+                for _, connection in pairs(getconnections(button[signal])) do
+                    connection:Fire()
                 end
-                if action.Target then
-                    BattleData.CurrentTarget = action.Target
-                    if not table.find(BattleData.Enemies, action.Target) then
-                        table.insert(BattleData.Enemies, action.Target)
-                    end
-                end
-                if action.Action then
-                    if not table.find(BattleData.CurrentMoves, action.Action) then
-                        table.insert(BattleData.CurrentMoves, action.Action)
-                    end
-                end
-                BattleData.InBattle = true
-            end
-            
-            return OriginalFireServer(self, data, ...)
-        end)
-    end)
-end
-
--- Hook to detect battle start via StartBattle event
-local function detectBattleStart()
-    -- Hook StartBattle OnClientEvent
-    pcall(function()
-        if Remotes:FindFirstChild("StartBattle") then
-            local StartBattleEvent = Remotes.StartBattle
-            
-            for _, Connection in getconnections(StartBattleEvent.OnClientEvent) do
-                local old; old = hookfunction(Connection.Function, function(...)
-                    local args = {...}
-                    BattleData.InBattle = true
-                    print("[Battle Detected] StartBattle triggered!", ...)
-                    
-                    -- Try to extract battle data from args
-                    if args[1] and type(args[1]) == "table" then
-                        if args[1].Enemies then
-                            for _, enemy in pairs(args[1].Enemies) do
-                                if type(enemy) == "string" then
-                                    table.insert(BattleData.Enemies, enemy)
-                                elseif type(enemy) == "table" and enemy.Id then
-                                    table.insert(BattleData.Enemies, enemy.Id)
-                                end
-                            end
-                        end
-                    end
-                    
-                    return old(...)
-                end)
             end
         end
+        
+        -- Method 2: Simulate mouse click
+        task.spawn(function()
+            local pos = button.AbsolutePosition
+            local size = button.AbsoluteSize
+            local x = pos.X + size.X/2
+            local y = pos.Y + size.Y/2
+            
+            VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
+            task.wait(0.05)
+            VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
+        end)
     end)
     
-    -- Also hook Iamloops1InitialReady as backup
-    pcall(function()
-        if Remotes:FindFirstChild("Iamloops1InitialReady") then
-            local InitialReadyEvent = Remotes.Iamloops1InitialReady
-            local OriginalInitialReady = hookfunction(InitialReadyEvent.FireServer, function(self, ...)
-                BattleData.InBattle = true
-                print("[Battle Detected] Battle ready!")
-                return OriginalInitialReady(self, ...)
-            end)
-        end
-    end)
+    return success
 end
 
--- Hook to detect battle end
-local function detectBattleEnd()
-    pcall(function()
-        if Remotes:FindFirstChild("Iamloops1Over") then
-            local BattleOverEvent = Remotes.Iamloops1Over
-            
-            -- Check what type of remote it is
-            if BattleOverEvent:IsA("RemoteEvent") then
-                -- It's a RemoteEvent, listen to OnClientEvent
-                BattleOverEvent.OnClientEvent:Connect(function(...)
-                    BattleData.InBattle = false
-                    BattleData.CurrentTarget = nil
-                    BattleData.Enemies = {}
-                    print("[Battle Detected] Battle ended via OnClientEvent!")
-                end)
-                print("[Hook] Listening to Iamloops1Over.OnClientEvent")
-            elseif BattleOverEvent:IsA("BindableEvent") then
-                -- It's a BindableEvent
-                BattleOverEvent.Event:Connect(function(...)
-                    BattleData.InBattle = false
-                    BattleData.CurrentTarget = nil
-                    BattleData.Enemies = {}
-                    print("[Battle Detected] Battle ended via Event!")
-                end)
-                print("[Hook] Listening to Iamloops1Over.Event")
-            end
-        end
-    end)
-end
-
--- Hook UpdateBattlingPlayers to detect battle state changes
-local function detectBattleState()
-    pcall(function()
-        if Remotes:FindFirstChild("UpdateBattlingPlayers") then
-            local UpdateEvent = Remotes.UpdateBattlingPlayers
-            
-            for _, Connection in getconnections(UpdateEvent.OnClientEvent) do
-                local old; old = hookfunction(Connection.Function, function(...)
-                    local args = {...}
-                    print("[Battle State] UpdateBattlingPlayers:", ...)
-                    
-                    -- args[1] is typically the player, args[2] is the battle state (true/false)
-                    if args[2] ~= nil then
-                        BattleData.InBattle = args[2]
-                        if args[2] then
-                            print("[Battle Detected] Player entered battle!")
-                        else
-                            print("[Battle Detected] Player left battle!")
-                            BattleData.CurrentTarget = nil
-                            BattleData.Enemies = {}
-                        end
-                    end
-                    
-                    return old(...)
-                end)
-            end
-        end
-    end)
-end
-
--- Hook to capture location/terrain data
-local OriginalRunAway
-local function hookRunAway()
-    pcall(function()
-        OriginalRunAway = hookfunction(RunAwayEvent.FireServer, function(self, location, terrain, ...)
-            BattleData.Location = location or BattleData.Location
-            BattleData.Terrain = terrain or BattleData.Terrain
-            return OriginalRunAway(self, location, terrain, ...)
-        end)
-    end)
-end
-
--- Scan player's GUI for battle information and interact with buttons
+-- Scan for battle GUI elements
 local function scanBattleGUI()
-    task.spawn(function()
-        while true do
-            task.wait(0.5)
-            
-            local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
-            
-            for _, gui in pairs(PlayerGui:GetDescendants()) do
-                if gui:IsA("TextLabel") or gui:IsA("TextButton") then
-                    local text = gui.Text:lower()
-                    
-                    -- Detect battle state from GUI text
-                    if text:match("battle") or text:match("fight") or text:match("wild") then
-                        if not BattleData.InBattle then
-                            BattleData.InBattle = true
-                            print("[GUI Detection] Battle detected from GUI!")
-                        end
-                    end
-                    
-                    -- Detect battle end
-                    if text:match("victory") or text:match("you won") or text:match("defeated") or text:match("ran away") then
-                        if BattleData.InBattle then
-                            BattleData.InBattle = false
-                            BattleData.CurrentTarget = nil
-                            BattleData.Enemies = {}
-                            print("[GUI Detection] Battle ended!")
-                        end
-                    end
-                    
-                    -- Store move button references
-                    if gui:IsA("TextButton") and (text:match("move") or gui.Name:match("Move") or gui.Name:match("Attack") or gui.Name:match("Skill")) then
-                        local moveName = gui.Text
-                        if moveName ~= "" and moveName ~= "Move" then
-                            if not table.find(BattleData.CurrentMoves, moveName) then
-                                table.insert(BattleData.CurrentMoves, moveName)
-                                print("[Moves Detected] Found move button:", moveName)
-                            end
-                            
-                            -- Store button reference for clicking
-                            if not _G.MoveButtons then
-                                _G.MoveButtons = {}
-                            end
-                            _G.MoveButtons[moveName] = gui
-                        end
-                    end
-                    
-                    -- Store run button reference
-                    if gui:IsA("TextButton") and (text:match("run") or text:match("flee") or text:match("escape")) then
-                        _G.RunButton = gui
-                        print("[GUI Detection] Found run button:", gui.Name)
-                    end
-                end
-            end
-        end
-    end)
-end
-
--- Scan for ClientRunner data
-local function scanClientRunner()
-    if LocalPlayer:FindFirstChild("ClientRunner") then
-        local ClientRunner = LocalPlayer.ClientRunner
-        
-        -- Try to find battle data in ClientRunner
-        for _, child in pairs(ClientRunner:GetDescendants()) do
-            if child:IsA("ValueBase") then
-                print("[ClientRunner] Found value:", child.Name, "=", child.Value)
-            end
-        end
+    local currentTime = tick()
+    if currentTime - BattleData.LastScan < 0.5 then
+        return -- Don't scan too frequently
     end
-end
-
--- Get best available target
-local function getTarget()
-    if BattleData.CurrentTarget then
-        return BattleData.CurrentTarget
-    elseif #BattleData.Enemies > 0 then
-        return BattleData.Enemies[1]
-    end
-    return nil
-end
-
--- Get user ID
-local function getUserId()
-    return BattleData.UserId
-end
-
--- Get available moves
-local function getAvailableMoves()
-    if #BattleData.CurrentMoves > 0 then
-        return BattleData.CurrentMoves
-    end
+    BattleData.LastScan = currentTime
     
-    -- Fallback: try to detect from GUI
     local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
-    if PlayerGui then
-        for _, gui in pairs(PlayerGui:GetDescendants()) do
-            if gui:IsA("TextButton") and gui.Name:match("Move") then
-                local moveName = gui.Text
-                if moveName ~= "" then
-                    table.insert(BattleData.CurrentMoves, moveName)
+    if not PlayerGui then return end
+    
+    -- Reset detection
+    local foundMoves = {}
+    local wasInBattle = BattleData.InBattle
+    BattleData.InBattle = false
+    
+    -- Scan all GUI elements
+    for _, gui in pairs(PlayerGui:GetDescendants()) do
+        if not gui:IsA("GuiObject") then continue end
+        
+        local text = ""
+        if gui:IsA("TextLabel") or gui:IsA("TextButton") then
+            text = gui.Text:lower()
+        end
+        
+        local name = gui.Name:lower()
+        
+        -- Detect if we're in battle
+        if text:match("battle") or text:match("wild") or name:match("battle") or 
+           text:match("enemy") or text:match("opponent") then
+            BattleData.InBattle = true
+        end
+        
+        -- Detect victory/defeat (battle ended)
+        if text:match("victory") or text:match("you won") or text:match("defeated") or 
+           text:match("you lost") or text:match("ran away") then
+            BattleData.InBattle = false
+        end
+        
+        -- Find move buttons (looking for numbered buttons or move names)
+        if gui:IsA("TextButton") and gui.Visible then
+            -- Check if it's a move button
+            if name:match("move") or name:match("attack") or name:match("skill") or
+               text:match("move %d") or (tonumber(text) and tonumber(text) <= 4) then
+                
+                -- Try to determine which move slot this is
+                local moveNum = nil
+                if name:match("move1") or name:match("attack1") or text == "1" then
+                    moveNum = 1
+                elseif name:match("move2") or name:match("attack2") or text == "2" then
+                    moveNum = 2
+                elseif name:match("move3") or name:match("attack3") or text == "3" then
+                    moveNum = 3
+                elseif name:match("move4") or name:match("attack4") or text == "4" then
+                    moveNum = 4
                 end
+                
+                -- If we couldn't determine the slot, assign sequentially
+                if not moveNum then
+                    for i = 1, 4 do
+                        if not foundMoves[i] then
+                            moveNum = i
+                            break
+                        end
+                    end
+                end
+                
+                if moveNum then
+                    foundMoves[moveNum] = gui
+                end
+            end
+            
+            -- Find run button
+            if (text:match("run") or text:match("flee") or text:match("escape") or
+                name:match("run") or name:match("flee")) and 
+                not text:match("running") then
+                BattleData.RunButton = gui
             end
         end
     end
     
-    return BattleData.CurrentMoves
+    -- Update move buttons
+    for i = 1, 4 do
+        if foundMoves[i] then
+            BattleData.MoveButtons[i] = foundMoves[i]
+        end
+    end
+    
+    -- Log battle state changes
+    if BattleData.InBattle and not wasInBattle then
+        print("[Auto Battle] Entered battle!")
+    elseif not BattleData.InBattle and wasInBattle then
+        print("[Auto Battle] Left battle!")
+    end
 end
 
--- Auto Attack Function
-local function autoAttack()
-    while Settings.AutoAttack do
-        task.wait(Settings.AttackDelay)
+-- Auto attack logic
+local function autoAttackLoop()
+    while true do
+        task.wait(0.1)
         
-        if not BattleData.InBattle then
+        if not Settings.AutoAttack then
             task.wait(1)
             continue
         end
         
-        -- Try GUI button clicking first
-        if _G.MoveButtons then
-            for i, moveName in ipairs(BattleData.CurrentMoves) do
-                if Settings.EnabledMoves[i] and Settings.AutoAttack then
-                    local moveButton = _G.MoveButtons[moveName]
-                    
-                    if moveButton and moveButton.Parent then
-                        -- Click the button in the GUI
-                        local success, err = pcall(function()
-                            -- Try multiple click methods
-                            if moveButton.MouseButton1Click then
-                                for _, connection in pairs(getconnections(moveButton.MouseButton1Click)) do
-                                    connection:Fire()
-                                end
-                            end
-                            
-                            -- Also try simulating a click
-                            local VirtualInputManager = game:GetService("VirtualInputManager")
-                            local pos = moveButton.AbsolutePosition
-                            local size = moveButton.AbsoluteSize
-                            VirtualInputManager:SendMouseButtonEvent(pos.X + size.X/2, pos.Y + size.Y/2, 0, true, game, 0)
-                            VirtualInputManager:SendMouseButtonEvent(pos.X + size.X/2, pos.Y + size.Y/2, 0, false, game, 0)
-                        end)
-                        
-                        if success then
-                            print("[Auto Attack] Clicked move button:", moveName)
-                        else
-                            warn("[Auto Attack] Failed to click button:", err)
-                        end
-                    else
-                        -- Fall back to remote event
-                        local moves = getAvailableMoves()
-                        local target = getTarget()
-                        local userId = getUserId()
-                        
-                        if target and userId and moves[i] then
-                            local success, err = pcall(function()
-                                if OriginalFireServer then
-                                    OriginalFireServer(BattleActionEvent, {
-                                        {
-                                            Target = target,
-                                            ActionType = "Attack",
-                                            Action = moves[i],
-                                            User = userId
-                                        }
-                                    })
-                                else
-                                    BattleActionEvent:FireServer({
-                                        {
-                                            Target = target,
-                                            ActionType = "Attack",
-                                            Action = moves[i],
-                                            User = userId
-                                        }
-                                    })
-                                end
-                            end)
-                            
-                            if success then
-                                print("[Auto Attack] Used:", moves[i], "on", target)
-                            else
-                                warn("[Auto Attack] Failed:", err)
-                            end
-                        end
-                    end
-                    
-                    task.wait(Settings.AttackDelay)
-                end
-            end
-        else
-            -- No GUI buttons found, use remote events
-            local moves = getAvailableMoves()
-            local target = getTarget()
-            local userId = getUserId()
-            
-            if not target or not userId then
-                warn("[Auto Attack] Missing target or user ID, waiting...")
-                task.wait(1)
-                continue
-            end
-            
-            for i, move in ipairs(moves) do
-                if Settings.EnabledMoves[i] and Settings.AutoAttack then
-                    local success, err = pcall(function()
-                        if OriginalFireServer then
-                            OriginalFireServer(BattleActionEvent, {
-                                {
-                                    Target = target,
-                                    ActionType = "Attack",
-                                    Action = move,
-                                    User = userId
-                                }
-                            })
-                        else
-                            BattleActionEvent:FireServer({
-                                {
-                                    Target = target,
-                                    ActionType = "Attack",
-                                    Action = move,
-                                    User = userId
-                                }
-                            })
-                        end
-                    end)
-                    
-                    if success then
-                        print("[Auto Attack] Used:", move, "on", target)
-                    else
-                        warn("[Auto Attack] Failed:", err)
-                    end
-                    
-                    task.wait(Settings.AttackDelay)
-                end
-            end
-        end
-    end
-end
-
--- Auto Run Function
-local function autoRun()
-    if not BattleData.InBattle then
-        print("[Auto Run] Not in battle!")
-        return
-    end
-    
-    -- Try clicking the run button in GUI first
-    if _G.RunButton and _G.RunButton.Parent then
-        local success, err = pcall(function()
-            -- Try firing button connections
-            if _G.RunButton.MouseButton1Click then
-                for _, connection in pairs(getconnections(_G.RunButton.MouseButton1Click)) do
-                    connection:Fire()
-                end
-            end
-            
-            -- Also try simulating a click
-            local VirtualInputManager = game:GetService("VirtualInputManager")
-            local pos = _G.RunButton.AbsolutePosition
-            local size = _G.RunButton.AbsoluteSize
-            VirtualInputManager:SendMouseButtonEvent(pos.X + size.X/2, pos.Y + size.Y/2, 0, true, game, 0)
-            VirtualInputManager:SendMouseButtonEvent(pos.X + size.X/2, pos.Y + size.Y/2, 0, false, game, 0)
-        end)
+        scanBattleGUI()
         
-        if success then
-            print("[Auto Run] Clicked run button in GUI")
-            BattleData.InBattle = false
-            return
-        else
-            warn("[Auto Run] Failed to click GUI button:", err)
+        if not BattleData.InBattle then
+            task.wait(0.5)
+            continue
         end
-    end
-    
-    -- Fall back to remote event
-    local location = BattleData.Location or "033_Academy"
-    local terrain = BattleData.Terrain or "WildGrass"
-    
-    local success, err = pcall(function()
-        if OriginalRunAway then
-            OriginalRunAway(RunAwayEvent, location, terrain)
-        else
-            RunAwayEvent:FireServer(location, terrain)
-        end
-    end)
-    
-    if success then
-        print("[Auto Run] Successfully ran away from battle")
-        BattleData.InBattle = false
-    else
-        warn("[Auto Run] Failed:", err)
-    end
-end
-
--- Monitor battle state
-local function monitorBattle()
-    task.spawn(function()
-        while true do
-            task.wait(2)
-            
-            if Settings.AutoRun and BattleData.InBattle then
-                autoRun()
+        
+        -- Try to use enabled moves
+        local usedMove = false
+        for i = 1, 4 do
+            if Settings.EnabledMoves[i] and BattleData.MoveButtons[i] then
+                local button = BattleData.MoveButtons[i]
+                
+                if button.Parent and button.Visible and button.Active ~= false then
+                    if clickButton(button) then
+                        print("[Auto Attack] Used move", i)
+                        usedMove = true
+                        task.wait(Settings.AttackDelay)
+                        break
+                    end
+                end
             end
         end
-    end)
+        
+        if not usedMove then
+            task.wait(0.5)
+        end
+    end
 end
 
--- Initialize hooks
-hookBattleAction()
-detectBattleStart()
-detectBattleEnd()
-detectBattleState()
-hookRunAway()
-scanBattleGUI()
-scanClientRunner()
-monitorBattle()
+-- Auto run logic
+local function autoRunLoop()
+    while true do
+        task.wait(0.1)
+        
+        if not Settings.AutoRun then
+            task.wait(1)
+            continue
+        end
+        
+        scanBattleGUI()
+        
+        if not BattleData.InBattle then
+            task.wait(0.5)
+            continue
+        end
+        
+        -- Try to click run button
+        if BattleData.RunButton then
+            local button = BattleData.RunButton
+            
+            if button.Parent and button.Visible and button.Active ~= false then
+                if clickButton(button) then
+                    print("[Auto Run] Clicked run button")
+                    task.wait(2) -- Wait before trying again
+                end
+            end
+        end
+        
+        task.wait(1)
+    end
+end
+
+-- Start background loops
+task.spawn(autoAttackLoop)
+task.spawn(autoRunLoop)
 
 -- Create GUI
 local ScreenGui = Instance.new("ScreenGui")
@@ -513,12 +249,13 @@ ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 -- Main Frame
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 320, 0, 420)
-MainFrame.Position = UDim2.new(0.5, -160, 0.5, -210)
+MainFrame.Size = UDim2.new(0, 300, 0, 360)
+MainFrame.Position = UDim2.new(0.5, -150, 0.5, -180)
 MainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
 MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
 
 local UICorner = Instance.new("UICorner")
 UICorner.CornerRadius = UDim.new(0, 10)
@@ -564,6 +301,8 @@ CloseCorner.CornerRadius = UDim.new(0, 6)
 CloseCorner.Parent = CloseButton
 
 CloseButton.MouseButton1Click:Connect(function()
+    Settings.AutoAttack = false
+    Settings.AutoRun = false
     ScreenGui:Destroy()
 end)
 
@@ -657,20 +396,17 @@ local function createMoveToggle(moveNum, position)
         Settings.EnabledMoves[moveNum] = not Settings.EnabledMoves[moveNum]
         MoveButton.BackgroundColor3 = Settings.EnabledMoves[moveNum] and Color3.fromRGB(50, 220, 100) or Color3.fromRGB(220, 50, 50)
     end)
-    
-    return MoveButton
 end
 
 -- Create toggles
 createToggle("Auto Attack", UDim2.new(0, 0, 0, 0), function(enabled)
     Settings.AutoAttack = enabled
-    if enabled then
-        task.spawn(autoAttack)
-    end
+    print("[Auto Attack]", enabled and "Enabled" or "Disabled")
 end)
 
 createToggle("Auto Run", UDim2.new(0, 0, 0, 50), function(enabled)
     Settings.AutoRun = enabled
+    print("[Auto Run]", enabled and "Enabled" or "Disabled")
 end)
 
 -- Moves Label
@@ -678,7 +414,7 @@ local MovesLabel = Instance.new("TextLabel")
 MovesLabel.Size = UDim2.new(1, 0, 0, 30)
 MovesLabel.Position = UDim2.new(0, 0, 0, 110)
 MovesLabel.BackgroundTransparency = 1
-MovesLabel.Text = "Select Moves to Use:"
+MovesLabel.Text = "Select Moves to Auto-Use:"
 MovesLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 MovesLabel.TextSize = 14
 MovesLabel.Font = Enum.Font.GothamBold
@@ -686,82 +422,49 @@ MovesLabel.TextXAlignment = Enum.TextXAlignment.Left
 MovesLabel.Parent = ContentFrame
 
 -- Create move toggles (2x2 grid)
-local MoveButtons = {}
-MoveButtons[1] = createMoveToggle(1, UDim2.new(0, 0, 0, 145))
-MoveButtons[2] = createMoveToggle(2, UDim2.new(0.52, 0, 0, 145))
-MoveButtons[3] = createMoveToggle(3, UDim2.new(0, 0, 0, 190))
-MoveButtons[4] = createMoveToggle(4, UDim2.new(0.52, 0, 0, 190))
+createMoveToggle(1, UDim2.new(0, 0, 0, 145))
+createMoveToggle(2, UDim2.new(0.52, 0, 0, 145))
+createMoveToggle(3, UDim2.new(0, 0, 0, 190))
+createMoveToggle(4, UDim2.new(0.52, 0, 0, 190))
 
--- Update move button labels when moves are detected
+-- Status Display
+local StatusFrame = Instance.new("Frame")
+StatusFrame.Size = UDim2.new(1, 0, 0, 60)
+StatusFrame.Position = UDim2.new(0, 0, 0, 240)
+StatusFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+StatusFrame.BorderSizePixel = 0
+StatusFrame.Parent = ContentFrame
+
+local StatusCorner = Instance.new("UICorner")
+StatusCorner.CornerRadius = UDim.new(0, 8)
+StatusCorner.Parent = StatusFrame
+
+local StatusLabel = Instance.new("TextLabel")
+StatusLabel.Size = UDim2.new(1, -10, 1, -10)
+StatusLabel.Position = UDim2.new(0, 5, 0, 5)
+StatusLabel.BackgroundTransparency = 1
+StatusLabel.Text = "Status: Waiting for battle..."
+StatusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+StatusLabel.TextSize = 11
+StatusLabel.Font = Enum.Font.Code
+StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+StatusLabel.TextYAlignment = Enum.TextYAlignment.Top
+StatusLabel.TextWrapped = true
+StatusLabel.Parent = StatusFrame
+
+-- Update status display
 task.spawn(function()
-    while true do
-        task.wait(2)
-        for i, move in ipairs(BattleData.CurrentMoves) do
-            if MoveButtons[i] then
-                MoveButtons[i].Text = move
-            end
-        end
-    end
-end)
-
--- Run Away Button
-local RunButton = Instance.new("TextButton")
-RunButton.Size = UDim2.new(1, 0, 0, 45)
-RunButton.Position = UDim2.new(0, 0, 0, 245)
-RunButton.BackgroundColor3 = Color3.fromRGB(255, 165, 0)
-RunButton.Text = "RUN AWAY NOW"
-RunButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-RunButton.TextSize = 16
-RunButton.Font = Enum.Font.GothamBold
-RunButton.BorderSizePixel = 0
-RunButton.Parent = ContentFrame
-
-local RunCorner = Instance.new("UICorner")
-RunCorner.CornerRadius = UDim.new(0, 8)
-RunCorner.Parent = RunButton
-
-RunButton.MouseButton1Click:Connect(function()
-    autoRun()
-end)
-
--- Info Display
-local InfoFrame = Instance.new("ScrollingFrame")
-InfoFrame.Size = UDim2.new(1, 0, 0, 60)
-InfoFrame.Position = UDim2.new(0, 0, 0, 300)
-InfoFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
-InfoFrame.BorderSizePixel = 0
-InfoFrame.ScrollBarThickness = 4
-InfoFrame.Parent = ContentFrame
-
-local InfoCorner = Instance.new("UICorner")
-InfoCorner.CornerRadius = UDim.new(0, 8)
-InfoCorner.Parent = InfoFrame
-
-local InfoLabel = Instance.new("TextLabel")
-InfoLabel.Size = UDim2.new(1, -10, 1, 0)
-InfoLabel.Position = UDim2.new(0, 5, 0, 0)
-InfoLabel.BackgroundTransparency = 1
-InfoLabel.Text = "Battle Info:\nWaiting for battle..."
-InfoLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-InfoLabel.TextSize = 11
-InfoLabel.Font = Enum.Font.Code
-InfoLabel.TextXAlignment = Enum.TextXAlignment.Left
-InfoLabel.TextYAlignment = Enum.TextYAlignment.Top
-InfoLabel.Parent = InfoFrame
-
--- Update info display
-task.spawn(function()
-    while true do
-        task.wait(1)
-        local info = "Battle Info:\n"
-        info = info .. "In Battle: " .. tostring(BattleData.InBattle) .. "\n"
-        info = info .. "Moves Detected: " .. #BattleData.CurrentMoves .. "\n"
-        info = info .. "Target: " .. (BattleData.CurrentTarget or "None") .. "\n"
-        info = info .. "User ID: " .. (BattleData.UserId and "Set" or "None")
+    while ScreenGui.Parent do
+        task.wait(0.5)
         
-        InfoLabel.Text = info
-        InfoLabel.Size = UDim2.new(1, -10, 0, InfoLabel.TextBounds.Y)
-        InfoFrame.CanvasSize = UDim2.new(0, 0, 0, InfoLabel.TextBounds.Y + 10)
+        scanBattleGUI()
+        
+        local status = "Status:\n"
+        status = status .. "In Battle: " .. (BattleData.InBattle and "YES" or "NO") .. "\n"
+        status = status .. "Moves Found: " .. tostring(#BattleData.MoveButtons) .. "/4\n"
+        status = status .. "Run Button: " .. (BattleData.RunButton and "Found" or "Not Found")
+        
+        StatusLabel.Text = status
     end
 end)
 
@@ -778,10 +481,8 @@ end
 print("=================================")
 print("Auto Battle GUI Loaded!")
 print("=================================")
-print("Features:")
-print("- Automatic target detection")
-print("- Automatic move detection")
-print("- Automatic user ID detection")
-print("- Battle state monitoring")
+print("- Auto Attack: Automatically uses enabled moves")
+print("- Auto Run: Automatically flees from battles")
+print("- Toggle moves 1-4 to select which to use")
+print("- Script runs continuously in background")
 print("=================================")
-print("Waiting for battle to gather info...")
