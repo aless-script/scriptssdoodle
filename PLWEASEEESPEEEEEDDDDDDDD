@@ -1,496 +1,512 @@
--- Auto Battle Script with GUI Interaction
--- Detects battles via StartBattle event and clicks Fight button + moves
-
-local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
-local VirtualInputManager = game:GetService("VirtualInputManager")
-
--- Wait for remotes
-task.wait(2)
-local Remotes = LocalPlayer:WaitForChild("Remotes", 10)
-if not Remotes then 
-    warn("[Auto Battle] Remotes not found!")
-    return 
+-- Doodle World Auto Battle Script
+-- Wait for game to load
+if game.GameId == 0 then
+    game:GetPropertyChangedSignal("GameId"):Wait()
 end
-
-local StartBattle = Remotes:WaitForChild("StartBattle", 5)
-if not StartBattle then
-    warn("[Auto Battle] StartBattle event not found!")
+if game.GameId ~= 1775919872 then
     return
 end
-
--- Initialize global storage
-if not _G.AutoBattle then
-    _G.AutoBattle = {
-        Settings = {
-            AutoAttack = false,
-            AutoRun = false,
-            EnabledMoves = {
-                [1] = true,
-                [2] = true,
-                [3] = true,
-                [4] = true
-            },
-            AttackDelay = 1.5
-        },
-        BattleData = {
-            InBattle = false,
-            FightButton = nil,
-            MoveButtons = {},
-            RunButton = nil
-        }
-    }
+if not game:IsLoaded() then
+    game.Loaded:Wait()
 end
 
-local Settings = _G.AutoBattle.Settings
-local BattleData = _G.AutoBattle.BattleData
+local Players = game:GetService("Players")
+local Player = Players.LocalPlayer
+if Player == nil then
+    Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
+    Player = Players.LocalPlayer
+end
 
--- Function to click a GUI button
-local function clickButton(button)
-    if not button or not button.Parent then
-        return false
+local Packer = Player:WaitForChild("Packer")
+local Client = require(Packer:WaitForChild("Client"))
+
+-- Global Settings
+_G.AutoBattle = _G.AutoBattle or {
+    AutoAttack = false,
+    AutoRun = false,
+    SelectedMoves = {nil, nil, nil, nil}
+}
+
+-- Helper Functions
+local function EndTurn()
+    local UpValues = getupvalues(Client.Network.BindEvent)
+    for i,v in pairs(UpValues) do
+        if typeof(v) == "table" and v["ForceEnd"] ~= nil then
+            v.ForceEnd()
+        end
+    end
+end
+
+local function GetOutDoodle()
+    local Match = nil
+    local PartyPosition
+    local MainGui = Player.PlayerGui:WaitForChild("MainGui")
+    local BattleGui = MainGui:WaitForChild("MainBattle")
+    if Client.Battle["CurrentBattle"] == nil then
+        return nil
+    end
+    local InfoHolder = BattleGui:WaitForChild("BackBox")
+    local NameLabel = InfoHolder:WaitForChild("NameLabel")
+    local LevelLabel = InfoHolder:WaitForChild("LevelLabel")
+    local HealthLabel = InfoHolder:WaitForChild("Health"):WaitForChild("HealthNumber")
+    local Party = Client.Battle.CurrentBattle["Player1Party"]
+    local MaxHealth = string.split(HealthLabel.Text,"/")
+    MaxHealth = string.gsub(MaxHealth[2]," ","")
+    MaxHealth = tonumber(MaxHealth)
+    local Level = string.gsub(LevelLabel.Text,"Lv. ","")
+    Level = tonumber(Level)
+    
+    for i,v in pairs(Party) do
+        local HealthMatch = v.Stats.hp == MaxHealth
+        local NameMatch = v.Name == NameLabel.Text or v.Doodle.Nickname == NameLabel.Text
+        local LevelMatch = v.Level == Level
+        if HealthMatch and NameMatch and LevelMatch then
+            Match = v
+            PartyPosition = i
+            break
+        end
     end
     
-    local success = pcall(function()
-        -- Method 1: Fire all connections
-        for _, signal in pairs({"MouseButton1Click", "MouseButton1Down", "Activated"}) do
-            if button[signal] then
-                for _, connection in pairs(getconnections(button[signal])) do
-                    connection:Fire()
-                end
+    if Match == nil then
+        for i,v in pairs(Party) do
+            if v.Name == NameLabel.Text or v.Doodle.Nickname == NameLabel.Text then
+                Match = v
+                PartyPosition = i
+                break
             end
         end
-        
-        -- Method 2: Simulate mouse click
-        task.spawn(function()
-            local pos = button.AbsolutePosition
-            local size = button.AbsoluteSize
-            local x = pos.X + size.X/2
-            local y = pos.Y + size.Y/2
-            
-            VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
-            task.wait(0.05)
-            VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
-        end)
-    end)
-    
-    return success
+    end
+    return Match, PartyPosition
 end
 
--- Scan for battle GUI elements
-local function scanBattleGUI()
-    local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
-    if not PlayerGui then return end
+local function GetEnemyDoodle()
+    local Match = nil
+    local MainGui = Player.PlayerGui:WaitForChild("MainGui")
+    local BattleGui = MainGui:WaitForChild("MainBattle")
+    local InfoHolder = BattleGui:WaitForChild("FrontBox")
+    local NameLabel = InfoHolder:WaitForChild("NameLabel")
+    local YourParty = Client.Network:get("PlayerData","GetParty")
+    local Party
     
-    BattleData.FightButton = nil
-    BattleData.MoveButtons = {}
-    BattleData.RunButton = nil
-    
-    -- Scan all GUI elements
-    for _, gui in pairs(PlayerGui:GetDescendants()) do
-        if not gui:IsA("TextButton") or not gui.Visible then continue end
-        
-        local text = gui.Text:lower()
-        local name = gui.Name:lower()
-        
-        -- Find Fight button
-        if text == "fight" or name == "fight" then
-            BattleData.FightButton = gui
-            print("[Auto Battle] Found Fight button:", gui:GetFullName())
-        end
-        
-        -- Find Run button
-        if text:match("run") or text:match("flee") or name:match("run") then
-            BattleData.RunButton = gui
-            print("[Auto Battle] Found Run button:", gui:GetFullName())
-        end
+    if Client.Battle["CurrentBattle"] == nil then
+        return nil
     end
     
-    -- After finding Fight button, look for move buttons in same parent
-    if BattleData.FightButton then
-        local parent = BattleData.FightButton.Parent
-        if parent then
-            -- Look for siblings that are likely move buttons
-            local moveButtons = {}
-            for _, child in pairs(parent:GetChildren()) do
-                if child:IsA("TextButton") and child ~= BattleData.FightButton and child.Visible then
-                    -- Skip run button
-                    local childText = child.Text:lower()
-                    if not childText:match("run") and not childText:match("flee") and not childText:match("fight") then
-                        table.insert(moveButtons, child)
+    if Client.Battle.CurrentBattle["Player2Party"][1].ID ~= YourParty[1].ID then
+        Party = Client.Battle.CurrentBattle["Player2Party"]
+    else
+        Party = Client.Battle.CurrentBattle["Player1Party"]
+    end
+    
+    for i,v in pairs(Party) do
+        if v.Name == NameLabel.Text or v.Doodle.Nickname == NameLabel.Text then
+            Match = v
+            break
+        end
+    end
+    return Match
+end
+
+local function SwitchDoodle(YourDoodle)
+    local MainGui = Player.PlayerGui:WaitForChild("MainGui")
+    local PartyGui = MainGui:WaitForChild("PartyUI")
+    local YourParty = Client.Battle.CurrentBattle["Player1Party"]
+    local SelectedDoodle = nil
+    
+    for i,v in pairs(YourParty) do
+        if SelectedDoodle == nil and v.ID ~= nil and v.ID ~= YourDoodle.ID then
+            if PartyGui:FindFirstChild("Party"..tostring(i)) then
+                local PartyMemberHolder = PartyGui:FindFirstChild("Party"..tostring(i))
+                if PartyMemberHolder:FindFirstChild("Health") and PartyMemberHolder.Health:FindFirstChild("HealthNumber") then
+                    local CurrentHealth = string.split(PartyMemberHolder.Health.HealthNumber.Text,"/")
+                    CurrentHealth = string.gsub(CurrentHealth[1]," ","")
+                    CurrentHealth = tonumber(CurrentHealth)
+                    if CurrentHealth ~= 0 then
+                        SelectedDoodle = v
+                        break
                     end
                 end
             end
-            
-            -- Sort by position (left to right)
-            table.sort(moveButtons, function(a, b)
-                return a.AbsolutePosition.X < b.AbsolutePosition.X
-            end)
-            
-            -- Assign to slots 1-4
-            for i = 1, math.min(4, #moveButtons) do
-                BattleData.MoveButtons[i] = moveButtons[i]
-                print("[Auto Battle] Found Move", i, ":", moveButtons[i].Text, moveButtons[i]:GetFullName())
-            end
         end
+    end
+    
+    if SelectedDoodle then
+        Client.Network:post("ForceSwitch",{
+            ["Target"] = SelectedDoodle.ID,
+            ["ActionType"] = "ForceSwitch",
+            ["User"] = YourDoodle.ID,
+        })
+        EndTurn()
+        repeat wait() until PartyGui.Visible == false
     end
 end
 
--- Battle start detection
-StartBattle.OnClientEvent:Connect(function(battleData)
-    BattleData.InBattle = true
-    print("[Auto Battle] Battle started!")
-    print("[Auto Battle] Battle Data:", battleData)
-    
-    -- Scan for GUI elements
-    task.wait(0.5) -- Wait for GUI to load
-    scanBattleGUI()
-    
-    -- If auto attack is on, start attacking
-    if Settings.AutoAttack then
-        task.spawn(function()
-            task.wait(1) -- Wait a bit for GUI to be ready
-            performAutoAttack()
-        end)
+local function GetBestMove(YourDoodle, EnemyDoodle)
+    -- First, try to use selected moves in order
+    for i = 1, 4 do
+        if _G.AutoBattle.SelectedMoves[i] ~= nil then
+            for _, move in ipairs(YourDoodle.Moves) do
+                if move.Name == _G.AutoBattle.SelectedMoves[i] then
+                    return move.Name
+                end
+            end
+        end
     end
     
-    -- If auto run is on, run away
-    if Settings.AutoRun then
-        task.spawn(function()
-            task.wait(1)
-            performAutoRun()
-        end)
+    -- If no selected moves available, find best matchup
+    local BestMatchup = nil
+    local HighestMultiplier = -100
+    for i,v in pairs(YourDoodle.Moves) do
+        local MoveData = Client.ClientDatabase:GetMoveData(v.Name)
+        local MoveType = MoveData.Type
+        local Multiplier, Message = Client.Typings:GetEffectiveness(YourDoodle, EnemyDoodle, MoveType)
+        if MoveData.Power ~= nil and Multiplier > HighestMultiplier then
+            HighestMultiplier = Multiplier
+            BestMatchup = v.Name
+        end
     end
-end)
+    
+    -- If still no move found, use random
+    if BestMatchup == nil and #YourDoodle.Moves > 0 then
+        BestMatchup = YourDoodle.Moves[math.random(1, #YourDoodle.Moves)].Name
+    end
+    
+    return BestMatchup
+end
 
--- Check if we left battle (detect battle end)
-task.spawn(function()
-    while true do
-        task.wait(1)
-        
-        if BattleData.InBattle then
-            -- Check if battle GUI still exists
-            local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
-            if PlayerGui then
-                local stillInBattle = false
-                for _, gui in pairs(PlayerGui:GetDescendants()) do
-                    if gui:IsA("TextButton") then
-                        local text = gui.Text:lower()
-                        if text == "fight" then
-                            stillInBattle = true
-                            break
-                        end
-                    end
+-- Auto Battle Loop
+local function AutoBattleLoop()
+    task.spawn(function()
+        while true do
+            task.wait(0.5)
+            if not _G.AutoBattle.AutoAttack and not _G.AutoBattle.AutoRun then
+                continue
+            end
+            
+            local MainGui = Player.PlayerGui:FindFirstChild("MainGui")
+            if not MainGui then continue end
+            
+            local BattleGui = MainGui:FindFirstChild("MainBattle")
+            if not BattleGui then continue end
+            
+            local BottomBar = BattleGui:FindFirstChild("BottomBar")
+            if not BottomBar then continue end
+            
+            local ActionBar = BottomBar:FindFirstChild("Actions")
+            local PartyGui = MainGui:FindFirstChild("PartyUI")
+            
+            if Client.Battle.CurrentBattle == nil then
+                continue
+            end
+            
+            if PartyGui and PartyGui.Visible then
+                local YourDoodle = GetOutDoodle()
+                if YourDoodle then
+                    SwitchDoodle(YourDoodle)
+                end
+            elseif ActionBar and ActionBar.Visible then
+                local YourDoodle = GetOutDoodle()
+                local EnemyDoodle = GetEnemyDoodle()
+                
+                if not YourDoodle or not EnemyDoodle then
+                    continue
                 end
                 
-                if not stillInBattle then
-                    BattleData.InBattle = false
-                    print("[Auto Battle] Battle ended!")
+                if _G.AutoBattle.AutoRun then
+                    -- Auto Run
+                    Client.Network:post("BattleAction",{
+                        [1] = {
+                            ["Target"] = "RunAway",
+                            ["ActionType"] = "Run",
+                            ["User"] = YourDoodle.ID,
+                        }
+                    })
+                    ActionBar.Visible = false
+                    EndTurn()
+                elseif _G.AutoBattle.AutoAttack then
+                    -- Auto Attack with best move
+                    local MoveToUse = GetBestMove(YourDoodle, EnemyDoodle)
+                    
+                    if MoveToUse then
+                        Client.Network:post("BattleAction",{
+                            [1] = {
+                                ["Target"] = EnemyDoodle.ID,
+                                ["ActionType"] = "Attack",
+                                ["Action"] = MoveToUse,
+                                ["User"] = YourDoodle.ID,
+                            }
+                        })
+                        ActionBar.Visible = false
+                        EndTurn()
+                    end
                 end
             end
         end
-    end
-end)
-
--- Perform auto attack
-function performAutoAttack()
-    if not BattleData.InBattle or not Settings.AutoAttack then return end
-    
-    -- First click Fight button
-    if BattleData.FightButton then
-        if clickButton(BattleData.FightButton) then
-            print("[Auto Attack] Clicked Fight button")
-            task.wait(0.5) -- Wait for move selection screen
-            
-            -- Re-scan for move buttons after clicking fight
-            scanBattleGUI()
-        else
-            warn("[Auto Attack] Failed to click Fight button")
-            return
-        end
-    else
-        warn("[Auto Attack] Fight button not found")
-        return
-    end
-    
-    -- Click enabled moves (left to right)
-    for i = 1, 4 do
-        if Settings.EnabledMoves[i] and BattleData.MoveButtons[i] then
-            local button = BattleData.MoveButtons[i]
-            
-            if button.Parent and button.Visible then
-                if clickButton(button) then
-                    print("[Auto Attack] Clicked Move", i, "-", button.Text)
-                    task.wait(Settings.AttackDelay)
-                    break -- Only use one move per turn
-                else
-                    warn("[Auto Attack] Failed to click Move", i)
-                end
-            end
-        end
-    end
-end
-
--- Perform auto run
-function performAutoRun()
-    if not BattleData.InBattle or not Settings.AutoRun then return end
-    
-    if BattleData.RunButton then
-        local button = BattleData.RunButton
-        
-        if button.Parent and button.Visible then
-            if clickButton(button) then
-                print("[Auto Run] Clicked Run button")
-                BattleData.InBattle = false
-            else
-                warn("[Auto Run] Failed to click Run button")
-            end
-        end
-    else
-        warn("[Auto Run] Run button not found")
-    end
+    end)
 end
 
 -- Create GUI
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "AutoBattleGUI"
+ScreenGui.Name = "AutoBattleGui"
 ScreenGui.ResetOnSpawn = false
-ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent = Player:WaitForChild("PlayerGui")
 
--- Main Frame
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 300, 0, 360)
-MainFrame.Position = UDim2.new(0.5, -150, 0.5, -180)
-MainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+MainFrame.Size = UDim2.new(0, 320, 0, 380)
+MainFrame.Position = UDim2.new(0.5, -160, 0.5, -190)
+MainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
 MainFrame.BorderSizePixel = 0
-MainFrame.Active = true
-MainFrame.Draggable = true
 MainFrame.Parent = ScreenGui
 
 local UICorner = Instance.new("UICorner")
 UICorner.CornerRadius = UDim.new(0, 10)
 UICorner.Parent = MainFrame
 
--- Title Bar
-local TitleBar = Instance.new("Frame")
-TitleBar.Name = "TitleBar"
-TitleBar.Size = UDim2.new(1, 0, 0, 40)
-TitleBar.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
-TitleBar.BorderSizePixel = 0
-TitleBar.Parent = MainFrame
-
-local TitleCorner = Instance.new("UICorner")
-TitleCorner.CornerRadius = UDim.new(0, 10)
-TitleCorner.Parent = TitleBar
-
 local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, -80, 1, 0)
-Title.Position = UDim2.new(0, 10, 0, 0)
-Title.BackgroundTransparency = 1
+Title.Name = "Title"
+Title.Size = UDim2.new(1, 0, 0, 40)
+Title.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+Title.BorderSizePixel = 0
 Title.Text = "Auto Battle"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.TextSize = 18
 Title.Font = Enum.Font.GothamBold
-Title.TextXAlignment = Enum.TextXAlignment.Left
-Title.Parent = TitleBar
+Title.Parent = MainFrame
 
--- Close Button
-local CloseButton = Instance.new("TextButton")
-CloseButton.Size = UDim2.new(0, 30, 0, 30)
-CloseButton.Position = UDim2.new(1, -35, 0, 5)
-CloseButton.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
-CloseButton.Text = "X"
-CloseButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-CloseButton.TextSize = 16
-CloseButton.Font = Enum.Font.GothamBold
-CloseButton.BorderSizePixel = 0
-CloseButton.Parent = TitleBar
+local TitleCorner = Instance.new("UICorner")
+TitleCorner.CornerRadius = UDim.new(0, 10)
+TitleCorner.Parent = Title
 
-local CloseCorner = Instance.new("UICorner")
-CloseCorner.CornerRadius = UDim.new(0, 6)
-CloseCorner.Parent = CloseButton
+-- Auto Attack Toggle
+local AutoAttackBtn = Instance.new("TextButton")
+AutoAttackBtn.Name = "AutoAttackBtn"
+AutoAttackBtn.Size = UDim2.new(0, 280, 0, 40)
+AutoAttackBtn.Position = UDim2.new(0, 20, 0, 60)
+AutoAttackBtn.BackgroundColor3 = Color3.fromRGB(255, 75, 75)
+AutoAttackBtn.Text = "Auto Attack: OFF"
+AutoAttackBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+AutoAttackBtn.TextSize = 16
+AutoAttackBtn.Font = Enum.Font.GothamBold
+AutoAttackBtn.Parent = MainFrame
 
-CloseButton.MouseButton1Click:Connect(function()
-    Settings.AutoAttack = false
-    Settings.AutoRun = false
-    ScreenGui:Destroy()
-end)
+local AttackCorner = Instance.new("UICorner")
+AttackCorner.CornerRadius = UDim.new(0, 8)
+AttackCorner.Parent = AutoAttackBtn
 
--- Content Frame
-local ContentFrame = Instance.new("Frame")
-ContentFrame.Size = UDim2.new(1, -20, 1, -60)
-ContentFrame.Position = UDim2.new(0, 10, 0, 50)
-ContentFrame.BackgroundTransparency = 1
-ContentFrame.Parent = MainFrame
+-- Auto Run Toggle
+local AutoRunBtn = Instance.new("TextButton")
+AutoRunBtn.Name = "AutoRunBtn"
+AutoRunBtn.Size = UDim2.new(0, 280, 0, 40)
+AutoRunBtn.Position = UDim2.new(0, 20, 0, 110)
+AutoRunBtn.BackgroundColor3 = Color3.fromRGB(255, 75, 75)
+AutoRunBtn.Text = "Auto Run: OFF"
+AutoRunBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+AutoRunBtn.TextSize = 16
+AutoRunBtn.Font = Enum.Font.GothamBold
+AutoRunBtn.Parent = MainFrame
 
--- Function to create toggle button
-local function createToggle(name, position, callback)
-    local ToggleFrame = Instance.new("Frame")
-    ToggleFrame.Size = UDim2.new(1, 0, 0, 40)
-    ToggleFrame.Position = position
-    ToggleFrame.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
-    ToggleFrame.BorderSizePixel = 0
-    ToggleFrame.Parent = ContentFrame
+local RunCorner = Instance.new("UICorner")
+RunCorner.CornerRadius = UDim.new(0, 8)
+RunCorner.Parent = AutoRunBtn
+
+-- Move Selection Label
+local MoveLabel = Instance.new("TextLabel")
+MoveLabel.Size = UDim2.new(1, -40, 0, 30)
+MoveLabel.Position = UDim2.new(0, 20, 0, 160)
+MoveLabel.BackgroundTransparency = 1
+MoveLabel.Text = "Move Priority (Select from dropdowns):"
+MoveLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+MoveLabel.TextSize = 14
+MoveLabel.Font = Enum.Font.Gotham
+MoveLabel.TextXAlignment = Enum.TextXAlignment.Left
+MoveLabel.Parent = MainFrame
+
+-- Dropdown Functions
+local function CreateDropdown(parent, position, index)
+    local Dropdown = Instance.new("Frame")
+    Dropdown.Size = UDim2.new(0, 280, 0, 35)
+    Dropdown.Position = position
+    Dropdown.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    Dropdown.BorderSizePixel = 0
+    Dropdown.Parent = parent
     
-    local ToggleCorner = Instance.new("UICorner")
-    ToggleCorner.CornerRadius = UDim.new(0, 8)
-    ToggleCorner.Parent = ToggleFrame
+    local DropCorner = Instance.new("UICorner")
+    DropCorner.CornerRadius = UDim.new(0, 6)
+    DropCorner.Parent = Dropdown
     
-    local Label = Instance.new("TextLabel")
-    Label.Size = UDim2.new(0.6, 0, 1, 0)
-    Label.Position = UDim2.new(0, 10, 0, 0)
-    Label.BackgroundTransparency = 1
-    Label.Text = name
-    Label.TextColor3 = Color3.fromRGB(255, 255, 255)
-    Label.TextSize = 14
-    Label.Font = Enum.Font.Gotham
-    Label.TextXAlignment = Enum.TextXAlignment.Left
-    Label.Parent = ToggleFrame
+    local DropButton = Instance.new("TextButton")
+    DropButton.Size = UDim2.new(1, 0, 1, 0)
+    DropButton.BackgroundTransparency = 1
+    DropButton.Text = "Move " .. index .. ": None"
+    DropButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    DropButton.TextSize = 14
+    DropButton.Font = Enum.Font.Gotham
+    DropButton.Parent = Dropdown
     
-    local ToggleButton = Instance.new("TextButton")
-    ToggleButton.Size = UDim2.new(0, 60, 0, 25)
-    ToggleButton.Position = UDim2.new(1, -70, 0.5, -12.5)
-    ToggleButton.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
-    ToggleButton.Text = "OFF"
-    ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-    ToggleButton.TextSize = 12
-    ToggleButton.Font = Enum.Font.GothamBold
-    ToggleButton.BorderSizePixel = 0
-    ToggleButton.Parent = ToggleFrame
+    local Arrow = Instance.new("TextLabel")
+    Arrow.Size = UDim2.new(0, 20, 1, 0)
+    Arrow.Position = UDim2.new(1, -25, 0, 0)
+    Arrow.BackgroundTransparency = 1
+    Arrow.Text = "▼"
+    Arrow.TextColor3 = Color3.fromRGB(200, 200, 200)
+    Arrow.TextSize = 12
+    Arrow.Font = Enum.Font.Gotham
+    Arrow.Parent = Dropdown
     
-    local ButtonCorner = Instance.new("UICorner")
-    ButtonCorner.CornerRadius = UDim.new(0, 6)
-    ButtonCorner.Parent = ToggleButton
+    local DropdownList = Instance.new("Frame")
+    DropdownList.Size = UDim2.new(1, 0, 0, 0)
+    DropdownList.Position = UDim2.new(0, 0, 1, 5)
+    DropdownList.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    DropdownList.BorderSizePixel = 0
+    DropdownList.Visible = false
+    DropdownList.ClipsDescendants = true
+    DropdownList.ZIndex = 10
+    DropdownList.Parent = Dropdown
     
-    local isEnabled = false
+    local ListCorner = Instance.new("UICorner")
+    ListCorner.CornerRadius = UDim.new(0, 6)
+    ListCorner.Parent = DropdownList
     
-    ToggleButton.MouseButton1Click:Connect(function()
-        isEnabled = not isEnabled
-        ToggleButton.Text = isEnabled and "ON" or "OFF"
-        ToggleButton.BackgroundColor3 = isEnabled and Color3.fromRGB(50, 220, 100) or Color3.fromRGB(220, 50, 50)
-        callback(isEnabled)
+    local ListLayout = Instance.new("UIListLayout")
+    ListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    ListLayout.Padding = UDim.new(0, 2)
+    ListLayout.Parent = DropdownList
+    
+    local function UpdateMoves()
+        for _, child in pairs(DropdownList:GetChildren()) do
+            if child:IsA("TextButton") then
+                child:Destroy()
+            end
+        end
+        
+        -- Add "None" option
+        local NoneBtn = Instance.new("TextButton")
+        NoneBtn.Size = UDim2.new(1, 0, 0, 30)
+        NoneBtn.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
+        NoneBtn.BorderSizePixel = 0
+        NoneBtn.Text = "None"
+        NoneBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        NoneBtn.TextSize = 13
+        NoneBtn.Font = Enum.Font.Gotham
+        NoneBtn.Parent = DropdownList
+        
+        NoneBtn.MouseButton1Click:Connect(function()
+            _G.AutoBattle.SelectedMoves[index] = nil
+            DropButton.Text = "Move " .. index .. ": None"
+            DropdownList.Visible = false
+        end)
+        
+        -- Get current doodle moves
+        if Client.Battle.CurrentBattle then
+            local YourDoodle = GetOutDoodle()
+            if YourDoodle and YourDoodle.Moves then
+                for _, move in ipairs(YourDoodle.Moves) do
+                    local MoveBtn = Instance.new("TextButton")
+                    MoveBtn.Size = UDim2.new(1, 0, 0, 30)
+                    MoveBtn.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
+                    MoveBtn.BorderSizePixel = 0
+                    MoveBtn.Text = move.Name
+                    MoveBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                    MoveBtn.TextSize = 13
+                    MoveBtn.Font = Enum.Font.Gotham
+                    MoveBtn.Parent = DropdownList
+                    
+                    MoveBtn.MouseButton1Click:Connect(function()
+                        _G.AutoBattle.SelectedMoves[index] = move.Name
+                        DropButton.Text = "Move " .. index .. ": " .. move.Name
+                        DropdownList.Visible = false
+                    end)
+                end
+            end
+        end
+        
+        local contentSize = ListLayout.AbsoluteContentSize.Y
+        DropdownList.Size = UDim2.new(1, 0, 0, math.min(contentSize, 150))
+    end
+    
+    DropButton.MouseButton1Click:Connect(function()
+        UpdateMoves()
+        DropdownList.Visible = not DropdownList.Visible
     end)
     
-    return ToggleButton
+    return Dropdown
 end
 
--- Function to create move toggle
-local function createMoveToggle(moveNum, position)
-    local MoveFrame = Instance.new("Frame")
-    MoveFrame.Size = UDim2.new(0.48, 0, 0, 35)
-    MoveFrame.Position = position
-    MoveFrame.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
-    MoveFrame.BorderSizePixel = 0
-    MoveFrame.Parent = ContentFrame
-    
-    local MoveCorner = Instance.new("UICorner")
-    MoveCorner.CornerRadius = UDim.new(0, 8)
-    MoveCorner.Parent = MoveFrame
-    
-    local MoveButton = Instance.new("TextButton")
-    MoveButton.Size = UDim2.new(1, -10, 1, -10)
-    MoveButton.Position = UDim2.new(0, 5, 0, 5)
-    MoveButton.BackgroundColor3 = Color3.fromRGB(50, 220, 100)
-    MoveButton.Text = "Move " .. moveNum
-    MoveButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-    MoveButton.TextSize = 12
-    MoveButton.Font = Enum.Font.GothamBold
-    MoveButton.BorderSizePixel = 0
-    MoveButton.Parent = MoveFrame
-    
-    local MoveButtonCorner = Instance.new("UICorner")
-    MoveButtonCorner.CornerRadius = UDim.new(0, 6)
-    MoveButtonCorner.Parent = MoveButton
-    
-    MoveButton.MouseButton1Click:Connect(function()
-        Settings.EnabledMoves[moveNum] = not Settings.EnabledMoves[moveNum]
-        MoveButton.BackgroundColor3 = Settings.EnabledMoves[moveNum] and Color3.fromRGB(50, 220, 100) or Color3.fromRGB(220, 50, 50)
-    end)
+-- Create 4 Dropdowns
+local Dropdowns = {}
+for i = 1, 4 do
+    Dropdowns[i] = CreateDropdown(MainFrame, UDim2.new(0, 20, 0, 190 + (i-1) * 42), i)
 end
 
--- Create toggles
-createToggle("Auto Attack", UDim2.new(0, 0, 0, 0), function(enabled)
-    Settings.AutoAttack = enabled
-    print("[Auto Attack]", enabled and "Enabled" or "Disabled")
-end)
-
-createToggle("Auto Run", UDim2.new(0, 0, 0, 50), function(enabled)
-    Settings.AutoRun = enabled
-    print("[Auto Run]", enabled and "Enabled" or "Disabled")
-end)
-
--- Moves Label
-local MovesLabel = Instance.new("TextLabel")
-MovesLabel.Size = UDim2.new(1, 0, 0, 30)
-MovesLabel.Position = UDim2.new(0, 0, 0, 110)
-MovesLabel.BackgroundTransparency = 1
-MovesLabel.Text = "Select Moves to Auto-Use:"
-MovesLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-MovesLabel.TextSize = 14
-MovesLabel.Font = Enum.Font.GothamBold
-MovesLabel.TextXAlignment = Enum.TextXAlignment.Left
-MovesLabel.Parent = ContentFrame
-
--- Create move toggles (2x2 grid)
-createMoveToggle(1, UDim2.new(0, 0, 0, 145))
-createMoveToggle(2, UDim2.new(0.52, 0, 0, 145))
-createMoveToggle(3, UDim2.new(0, 0, 0, 190))
-createMoveToggle(4, UDim2.new(0.52, 0, 0, 190))
-
--- Status Display
-local StatusFrame = Instance.new("Frame")
-StatusFrame.Size = UDim2.new(1, 0, 0, 60)
-StatusFrame.Position = UDim2.new(0, 0, 0, 240)
-StatusFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
-StatusFrame.BorderSizePixel = 0
-StatusFrame.Parent = ContentFrame
-
-local StatusCorner = Instance.new("UICorner")
-StatusCorner.CornerRadius = UDim.new(0, 8)
-StatusCorner.Parent = StatusFrame
-
-local StatusLabel = Instance.new("TextLabel")
-StatusLabel.Size = UDim2.new(1, -10, 1, -10)
-StatusLabel.Position = UDim2.new(0, 5, 0, 5)
-StatusLabel.BackgroundTransparency = 1
-StatusLabel.Text = "Status: Waiting for battle..."
-StatusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-StatusLabel.TextSize = 11
-StatusLabel.Font = Enum.Font.Code
-StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
-StatusLabel.TextYAlignment = Enum.TextYAlignment.Top
-StatusLabel.TextWrapped = true
-StatusLabel.Parent = StatusFrame
-
--- Update status display
-task.spawn(function()
-    while ScreenGui.Parent do
-        task.wait(0.5)
-        
-        local status = "Status:\n"
-        status = status .. "In Battle: " .. (BattleData.InBattle and "YES" or "NO") .. "\n"
-        status = status .. "Fight Button: " .. (BattleData.FightButton and "Found" or "Not Found") .. "\n"
-        status = status .. "Moves Found: " .. #BattleData.MoveButtons .. "/4"
-        
-        StatusLabel.Text = status
+-- Toggle Functions
+AutoAttackBtn.MouseButton1Click:Connect(function()
+    _G.AutoBattle.AutoAttack = not _G.AutoBattle.AutoAttack
+    if _G.AutoBattle.AutoAttack then
+        _G.AutoBattle.AutoRun = false
+        AutoAttackBtn.BackgroundColor3 = Color3.fromRGB(75, 255, 75)
+        AutoAttackBtn.Text = "Auto Attack: ON"
+        AutoRunBtn.BackgroundColor3 = Color3.fromRGB(255, 75, 75)
+        AutoRunBtn.Text = "Auto Run: OFF"
+    else
+        AutoAttackBtn.BackgroundColor3 = Color3.fromRGB(255, 75, 75)
+        AutoAttackBtn.Text = "Auto Attack: OFF"
     end
 end)
 
--- Parent GUI
-if gethui then
-    ScreenGui.Parent = gethui()
-elseif syn and syn.protect_gui then
-    syn.protect_gui(ScreenGui)
-    ScreenGui.Parent = game.CoreGui
-else
-    ScreenGui.Parent = game.CoreGui
+AutoRunBtn.MouseButton1Click:Connect(function()
+    _G.AutoBattle.AutoRun = not _G.AutoBattle.AutoRun
+    if _G.AutoBattle.AutoRun then
+        _G.AutoBattle.AutoAttack = false
+        AutoRunBtn.BackgroundColor3 = Color3.fromRGB(75, 255, 75)
+        AutoRunBtn.Text = "Auto Run: ON"
+        AutoAttackBtn.BackgroundColor3 = Color3.fromRGB(255, 75, 75)
+        AutoAttackBtn.Text = "Auto Attack: OFF"
+    else
+        AutoRunBtn.BackgroundColor3 = Color3.fromRGB(255, 75, 75)
+        AutoRunBtn.Text = "Auto Run: OFF"
+    end
+end)
+
+-- Make GUI Draggable
+local dragging
+local dragInput
+local dragStart
+local startPos
+
+local function update(input)
+    local delta = input.Position - dragStart
+    MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
 end
 
-print("=================================")
-print("Auto Battle GUI Loaded!")
-print("=================================")
-print("- Listening for StartBattle event")
-print("- Will auto-click Fight + Moves")
-print("- Move selection: Left to Right (1-4)")
-print("=================================")
+Title.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = MainFrame.Position
+        
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+Title.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement then
+        dragInput = input
+    end
+end)
+
+game:GetService("UserInputService").InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        update(input)
+    end
+end)
+
+-- Start Auto Battle Loop
+AutoBattleLoop()
+
+print("Auto Battle Script Loaded!")
+print("_G.AutoBattle settings available globally")
