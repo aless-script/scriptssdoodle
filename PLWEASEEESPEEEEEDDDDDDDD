@@ -1,4 +1,4 @@
--- Doodle World Auto Battle Script
+-- Doodle World Auto Battle Script (Updated Structure)
 -- Wait for game to load
 repeat task.wait() until game:IsLoaded()
 
@@ -20,22 +20,28 @@ if not Player then
     Player = Players.LocalPlayer
 end
 
--- Wait for Packer
-local Packer = Player:WaitForChild("Packer", 30)
-if not Packer then
-    warn("Packer not found!")
+-- Wait for new structure
+local ClientRunner = Player:WaitForChild("ClientRunner", 30)
+if not ClientRunner then
+    warn("ClientRunner not found!")
     return
 end
 
-local ClientModule = Packer:WaitForChild("Client", 30)
-if not ClientModule then
-    warn("Client module not found!")
+local Client = Player:WaitForChild("Client", 30)
+if not Client then
+    warn("Client not found!")
     return
 end
 
-local Client = require(ClientModule)
+local Database = ClientRunner:WaitForChild("Database", 30)
+if not Database then
+    warn("Database not found!")
+    return
+end
 
-print("Client loaded successfully!")
+-- Require the Client module
+local ClientModule = require(Client)
+print("Client module loaded successfully!")
 
 -- Global Settings
 _G.AutoBattle = _G.AutoBattle or {
@@ -47,7 +53,7 @@ _G.AutoBattle = _G.AutoBattle or {
 -- Helper Functions
 local function EndTurn()
     local success, err = pcall(function()
-        local UpValues = getupvalues(Client.Network.BindEvent)
+        local UpValues = getupvalues(ClientModule.Network.BindEvent)
         for i,v in pairs(UpValues) do
             if typeof(v) == "table" and v["ForceEnd"] ~= nil then
                 v.ForceEnd()
@@ -68,7 +74,7 @@ local function GetOutDoodle()
         local BattleGui = MainGui:FindFirstChild("MainBattle")
         if not BattleGui then return nil end
         
-        if not Client.Battle.CurrentBattle then return nil end
+        if not ClientModule.Battle.CurrentBattle then return nil end
         
         local InfoHolder = BattleGui:FindFirstChild("BackBox")
         if not InfoHolder then return nil end
@@ -81,7 +87,7 @@ local function GetOutDoodle()
         local HealthLabel = Health:FindFirstChild("HealthNumber")
         if not HealthLabel then return nil end
         
-        local Party = Client.Battle.CurrentBattle["Player1Party"]
+        local Party = ClientModule.Battle.CurrentBattle["Player1Party"]
         local MaxHealth = string.split(HealthLabel.Text,"/")
         MaxHealth = string.gsub(MaxHealth[2]," ","")
         MaxHealth = tonumber(MaxHealth)
@@ -121,7 +127,7 @@ local function GetEnemyDoodle()
         local BattleGui = MainGui:FindFirstChild("MainBattle")
         if not BattleGui then return nil end
         
-        if not Client.Battle.CurrentBattle then return nil end
+        if not ClientModule.Battle.CurrentBattle then return nil end
         
         local InfoHolder = BattleGui:FindFirstChild("FrontBox")
         if not InfoHolder then return nil end
@@ -129,13 +135,13 @@ local function GetEnemyDoodle()
         local NameLabel = InfoHolder:FindFirstChild("NameLabel")
         if not NameLabel then return nil end
         
-        local YourParty = Client.Network:get("PlayerData","GetParty")
+        local YourParty = ClientModule.Network:get("PlayerData","GetParty")
         local Party
         
-        if Client.Battle.CurrentBattle["Player2Party"][1].ID ~= YourParty[1].ID then
-            Party = Client.Battle.CurrentBattle["Player2Party"]
+        if ClientModule.Battle.CurrentBattle["Player2Party"][1].ID ~= YourParty[1].ID then
+            Party = ClientModule.Battle.CurrentBattle["Player2Party"]
         else
-            Party = Client.Battle.CurrentBattle["Player1Party"]
+            Party = ClientModule.Battle.CurrentBattle["Player1Party"]
         end
         
         for i,v in pairs(Party) do
@@ -156,7 +162,7 @@ local function SwitchDoodle(YourDoodle)
     pcall(function()
         local MainGui = Player.PlayerGui:WaitForChild("MainGui")
         local PartyGui = MainGui:WaitForChild("PartyUI")
-        local YourParty = Client.Battle.CurrentBattle["Player1Party"]
+        local YourParty = ClientModule.Battle.CurrentBattle["Player1Party"]
         local SelectedDoodle = nil
         
         for i,v in pairs(YourParty) do
@@ -177,7 +183,7 @@ local function SwitchDoodle(YourDoodle)
         end
         
         if SelectedDoodle then
-            Client.Network:post("ForceSwitch",{
+            ClientModule.Network:post("ForceSwitch",{
                 ["Target"] = SelectedDoodle.ID,
                 ["ActionType"] = "ForceSwitch",
                 ["User"] = YourDoodle.ID,
@@ -206,10 +212,10 @@ local function GetBestMove(YourDoodle, EnemyDoodle)
     
     pcall(function()
         for i,v in pairs(YourDoodle.Moves) do
-            local MoveData = Client.ClientDatabase:GetMoveData(v.Name)
+            local MoveData = ClientModule.ClientDatabase:GetMoveData(v.Name)
             if MoveData then
                 local MoveType = MoveData.Type
-                local Multiplier = Client.Typings:GetEffectiveness(YourDoodle, EnemyDoodle, MoveType)
+                local Multiplier = ClientModule.Typings:GetEffectiveness(YourDoodle, EnemyDoodle, MoveType)
                 if MoveData.Power and Multiplier > HighestMultiplier then
                     HighestMultiplier = Multiplier
                     BestMatchup = v.Name
@@ -249,7 +255,7 @@ local function AutoBattleLoop()
                 local ActionBar = BottomBar:FindFirstChild("Actions")
                 local PartyGui = MainGui:FindFirstChild("PartyUI")
                 
-                if not Client.Battle.CurrentBattle then return end
+                if not ClientModule.Battle.CurrentBattle then return end
                 
                 if PartyGui and PartyGui.Visible then
                     local YourDoodle = GetOutDoodle()
@@ -263,7 +269,7 @@ local function AutoBattleLoop()
                     if not YourDoodle or not EnemyDoodle then return end
                     
                     if _G.AutoBattle.AutoRun then
-                        Client.Network:post("BattleAction",{
+                        ClientModule.Network:post("BattleAction",{
                             [1] = {
                                 ["Target"] = "RunAway",
                                 ["ActionType"] = "Run",
@@ -276,7 +282,7 @@ local function AutoBattleLoop()
                         local MoveToUse = GetBestMove(YourDoodle, EnemyDoodle)
                         
                         if MoveToUse then
-                            Client.Network:post("BattleAction",{
+                            ClientModule.Network:post("BattleAction",{
                                 [1] = {
                                     ["Target"] = EnemyDoodle.ID,
                                     ["ActionType"] = "Attack",
@@ -451,7 +457,7 @@ local function CreateDropdown(parent, position, index)
         
         -- Get current doodle moves
         pcall(function()
-            if Client.Battle.CurrentBattle then
+            if ClientModule.Battle.CurrentBattle then
                 local YourDoodle = GetOutDoodle()
                 if YourDoodle and YourDoodle.Moves then
                     for _, move in ipairs(YourDoodle.Moves) do
