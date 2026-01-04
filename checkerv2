@@ -1427,7 +1427,7 @@ task.spawn(function()
                 
                 if zone and zoneEncounters[zone] then
                     pcall(function()
-                        DudeWhyld:FireServer(zone, zoneEncounters[zone])
+                        game:GetService("ReplicatedStorage").Remotes.DudeWhyld:FireServer(zone, zoneEncounters[zone])
                     end)
                     task.wait(Settings.EncounterDelay)
                 else
