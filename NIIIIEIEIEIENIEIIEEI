@@ -582,15 +582,33 @@ end)
 
 -- Battle Event Handler
 if StartBattleEvent then
+    print("Battle event connected!")
     StartBattleEvent.OnClientEvent:Connect(function(battleData)
+        print("Battle started! Active:", AutoFarm.Active)
+        
         if not AutoFarm.Active then return end
         
         wait(0.3)
         
-        local wildDoodle = battleData.Player2Party and battleData.Player2Party[1]
-        local myDoodle = battleData.Player1Party and battleData.Player1Party[1]
+        -- Get doodles
+        local wildDoodle = nil
+        local myDoodle = nil
         
-        if not wildDoodle or not myDoodle then return end
+        pcall(function()
+            if battleData and battleData.Player2Party and battleData.Player2Party[1] then
+                wildDoodle = battleData.Player2Party[1]
+            end
+            if battleData and battleData.Player1Party and battleData.Player1Party[1] then
+                myDoodle = battleData.Player1Party[1]
+            end
+        end)
+        
+        if not wildDoodle or not myDoodle then 
+            print("Could not find doodles in battle")
+            return 
+        end
+        
+        print("Found wild:", wildDoodle.Name or wildDoodle.RealName)
         
         AutoFarm.Stats.Encounters = AutoFarm.Stats.Encounters + 1
         UpdateDisplay(wildDoodle)
@@ -599,13 +617,15 @@ if StartBattleEvent then
             print("Auto Run - Running away...")
             wait(0.5)
             pcall(function()
-                ClientModule.Network:post("BattleAction",{
-                    [1] = {
-                        ["Target"] = "RunAway",
-                        ["ActionType"] = "Run",
-                        ["User"] = myDoodle.ID,
-                    }
-                })
+                if ClientModule and ClientModule.Network then
+                    ClientModule.Network:post("BattleAction",{
+                        [1] = {
+                            ["Target"] = "RunAway",
+                            ["ActionType"] = "Run",
+                            ["User"] = myDoodle.ID,
+                        }
+                    })
+                end
             end)
             return
         end
@@ -625,17 +645,44 @@ if StartBattleEvent then
             print("Chain Mode: " .. reason .. " - Running...")
             wait(0.5)
             pcall(function()
-                ClientModule.Network:post("BattleAction",{
-                    [1] = {
-                        ["Target"] = "RunAway",
-                        ["ActionType"] = "Run",
-                        ["User"] = myDoodle.ID,
-                    }
-                })
+                if ClientModule and ClientModule.Network then
+                    ClientModule.Network:post("BattleAction",{
+                        [1] = {
+                            ["Target"] = "RunAway",
+                            ["ActionType"] = "Run",
+                            ["User"] = myDoodle.ID,
+                        }
+                    })
+                end
             end)
+            return
         end
+        
+        -- Normal battle - use selected move
+        print("Normal battle - using move slot", AutoFarm.SelectedMoveSlot)
+        wait(0.5)
+        pcall(function()
+            if myDoodle.Moves and myDoodle.Moves[AutoFarm.SelectedMoveSlot] then
+                local move = myDoodle.Moves[AutoFarm.SelectedMoveSlot]
+                local moveName = type(move) == "table" and move.Name or move
+                
+                if ClientModule and ClientModule.Network then
+                    ClientModule.Network:post("BattleAction",{
+                        [1] = {
+                            ["Target"] = wildDoodle.ID,
+                            ["ActionType"] = "Move",
+                            ["Move"] = moveName,
+                            ["User"] = myDoodle.ID,
+                        }
+                    })
+                end
+            end
+        end)
     end)
+else
+    warn("StartBattleEvent not found!")
 end
 
 print("✅ Doodle World Auto Farm loaded successfully!")
 print("Configure your filters and click Start!")
+print("Enter a battle to test!")
