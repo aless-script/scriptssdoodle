@@ -47,27 +47,35 @@ end
 print("✓ BattleAction found")
 
 -- Hook into DudeWhyld to detect zones
-local originalFireServer = DudeWhyld.FireServer
-DudeWhyld.FireServer = function(self, zoneName, encounterType, ...)
-    if zoneName and encounterType then
-        DetectedZones.CurrentZone = zoneName
-        DetectedZones.CurrentEncounterType = encounterType
-        DetectedZones.IsKnownZone = zoneEncounters[zoneName] ~= nil
+local originalNamecall
+originalNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+    local args = {...}
+    local method = getnamecallmethod()
+    
+    if method == "FireServer" and self == DudeWhyld then
+        local zoneName = args[1]
+        local encounterType = args[2]
         
-        if DetectedZones.LearningMode then
-            print("🔍 DETECTED ZONE:", zoneName)
-            print("🔍 ENCOUNTER TYPE:", encounterType)
+        if zoneName and encounterType then
+            DetectedZones.CurrentZone = zoneName
+            DetectedZones.CurrentEncounterType = encounterType
+            DetectedZones.IsKnownZone = zoneEncounters[zoneName] ~= nil
             
-            if not zoneEncounters[zoneName] then
-                print("⚠️ NEW ZONE DETECTED! Not in database.")
-            else
-                print("✓ Zone already known")
+            if DetectedZones.LearningMode then
+                print("🔍 DETECTED ZONE:", zoneName)
+                print("🔍 ENCOUNTER TYPE:", encounterType)
+                
+                if not zoneEncounters[zoneName] then
+                    print("⚠️ NEW ZONE DETECTED! Not in database.")
+                else
+                    print("✓ Zone already known")
+                end
             end
         end
     end
     
-    return originalFireServer(self, zoneName, encounterType, ...)
-end
+    return originalNamecall(self, ...)
+end)
 
 print("✓ Zone detection hook installed")
 
