@@ -1,10 +1,7 @@
--- Initialize _G safely at line 1
-if not _G then
-    _G = shared or getfenv()
-end
-if not getgenv then
-    getgenv = function() return _G end
-end
+-- Initialize _G safely at line 1 - Multiple fallback methods
+_G = _G or shared or getfenv() or {}
+getgenv = getgenv or function() return _G end
+getfenv = getfenv or function() return _G end
 
 -- Doodle World Complete Auto Farm
 -- Combines Auto Battle + Chain Hunting + Filters
