@@ -246,6 +246,21 @@ local function PerformBattleAction(myDoodle, enemyDoodle, shouldRun)
     task.wait(1) -- Wait for battle to fully load
     
     local success, err = pcall(function()
+        -- Hide action bar like in working script
+        local MainGui = Player.PlayerGui:FindFirstChild("MainGui")
+        if MainGui then
+            local BattleGui = MainGui:FindFirstChild("MainBattle")
+            if BattleGui then
+                local BottomBar = BattleGui:FindFirstChild("BottomBar")
+                if BottomBar then
+                    local ActionBar = BottomBar:FindFirstChild("Actions")
+                    if ActionBar then
+                        ActionBar.Visible = false
+                    end
+                end
+            end
+        end
+        
         if shouldRun then
             -- Run away
             print("Running from battle...")
@@ -396,10 +411,11 @@ ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 350, 0, 550)
-MainFrame.Position = UDim2.new(0.5, -175, 0.5, -275)
+MainFrame.Size = UDim2.new(0, 320, 0, 480)
+MainFrame.Position = UDim2.new(0.02, 0, 0.5, -240)
 MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
 MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
 MainFrame.Parent = ScreenGui
 
 local MainCorner = Instance.new("UICorner")
@@ -531,13 +547,13 @@ end
 -- TextBox Helper
 local function AddTextBox(placeholder, callback)
     local box = Instance.new("TextBox")
-    box.Size = UDim2.new(1, 0, 0, 35)
+    box.Size = UDim2.new(1, 0, 0, 32)
     box.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
     box.Text = ""
     box.PlaceholderText = placeholder
     box.TextColor3 = Color3.fromRGB(255, 255, 255)
     box.PlaceholderColor3 = Color3.fromRGB(150, 150, 150)
-    box.TextSize = 13
+    box.TextSize = 12
     box.Font = Enum.Font.Gotham
     box.ClearTextOnFocus = false
     box.Parent = Content
@@ -551,6 +567,125 @@ local function AddTextBox(placeholder, callback)
     end)
     
     return box
+end
+
+-- Dropdown Helper (for Doodle selection)
+local function AddDropdown(text, list, callback)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, 0, 0, 32)
+    frame.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+    frame.BorderSizePixel = 0
+    frame.Parent = Content
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = frame
+    
+    local searchBox = Instance.new("TextBox")
+    searchBox.Size = UDim2.new(1, -10, 1, 0)
+    searchBox.Position = UDim2.new(0, 5, 0, 0)
+    searchBox.BackgroundTransparency = 1
+    searchBox.Text = ""
+    searchBox.PlaceholderText = text
+    searchBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+    searchBox.PlaceholderColor3 = Color3.fromRGB(150, 150, 150)
+    searchBox.TextSize = 12
+    searchBox.Font = Enum.Font.Gotham
+    searchBox.ClearTextOnFocus = false
+    searchBox.TextXAlignment = Enum.TextXAlignment.Left
+    searchBox.Parent = frame
+    
+    local dropdownList = Instance.new("ScrollingFrame")
+    dropdownList.Size = UDim2.new(1, 0, 0, 0)
+    dropdownList.Position = UDim2.new(0, 0, 1, 2)
+    dropdownList.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+    dropdownList.BorderSizePixel = 0
+    dropdownList.Visible = false
+    dropdownList.ScrollBarThickness = 4
+    dropdownList.ZIndex = 10
+    dropdownList.Parent = frame
+    
+    local listCorner = Instance.new("UICorner")
+    listCorner.CornerRadius = UDim.new(0, 6)
+    listCorner.Parent = dropdownList
+    
+    local listLayout = Instance.new("UIListLayout")
+    listLayout.Padding = UDim.new(0, 2)
+    listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    listLayout.Parent = dropdownList
+    
+    local function updateList(query)
+        for _, child in ipairs(dropdownList:GetChildren()) do
+            if child:IsA("TextButton") then
+                child:Destroy()
+            end
+        end
+        
+        if query == "" then
+            dropdownList.Visible = false
+            return
+        end
+        
+        local matches = {}
+        query = query:lower()
+        
+        for _, item in ipairs(list) do
+            if item:lower():find(query, 1, true) then
+                table.insert(matches, item)
+                if #matches >= 10 then break end -- Limit to 10 results
+            end
+        end
+        
+        if #matches == 0 then
+            dropdownList.Visible = false
+            return
+        end
+        
+        for _, item in ipairs(matches) do
+            local btn = Instance.new("TextButton")
+            btn.Size = UDim2.new(1, -8, 0, 24)
+            btn.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+            btn.Text = item
+            btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            btn.TextSize = 11
+            btn.Font = Enum.Font.Gotham
+            btn.Parent = dropdownList
+            
+            local btnCorner = Instance.new("UICorner")
+            btnCorner.CornerRadius = UDim.new(0, 4)
+            btnCorner.Parent = btn
+            
+            btn.MouseButton1Click:Connect(function()
+                searchBox.Text = item
+                dropdownList.Visible = false
+                callback(item)
+            end)
+            
+            btn.MouseEnter:Connect(function()
+                btn.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
+            end)
+            
+            btn.MouseLeave:Connect(function()
+                btn.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+            end)
+        end
+        
+        dropdownList.Visible = true
+        local contentHeight = math.min(listLayout.AbsoluteContentSize.Y + 4, 150)
+        dropdownList.Size = UDim2.new(1, 0, 0, contentHeight)
+        dropdownList.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y + 4)
+    end
+    
+    searchBox:GetPropertyChangedSignal("Text"):Connect(function()
+        updateList(searchBox.Text)
+    end)
+    
+    searchBox.FocusLost:Connect(function()
+        task.wait(0.1)
+        dropdownList.Visible = false
+    end)
+    
+    return searchBox
 end
 
 -- Slider Helper
@@ -652,7 +787,7 @@ end)
 
 AddSection("🎯 Filters")
 
-AddTextBox("Target Species (leave empty for any)", function(text)
+AddDropdown("Search Doodle Name...", DoodleNames, function(text)
     Settings.TargetSpecies = text
     print("Target:", text == "" and "Any" or text)
 end)
@@ -706,8 +841,13 @@ end)
 -- Make draggable
 local dragging, dragInput, dragStart, startPos
 
+local function updateDrag(input)
+    local delta = input.Position - dragStart
+    MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+end
+
 TitleBar.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         dragging = true
         dragStart = input.Position
         startPos = MainFrame.Position
@@ -721,15 +861,14 @@ TitleBar.InputBegan:Connect(function(input)
 end)
 
 TitleBar.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement then
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
         dragInput = input
     end
 end)
 
 UserInputService.InputChanged:Connect(function(input)
     if input == dragInput and dragging then
-        local delta = input.Position - dragStart
-        MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        updateDrag(input)
     end
 end)
 
