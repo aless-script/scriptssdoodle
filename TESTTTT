@@ -28,7 +28,6 @@ print("✓ Remotes found")
 
 -- Get remotes
 local DudeWhyld = Remotes:WaitForChild("DudeWhyld", 10)
-local StartBattle = Remotes:WaitForChild("StartBattle", 10)
 local BattleAction = Remotes:WaitForChild("BattleAction", 10)
 
 if not DudeWhyld then
@@ -36,12 +35,6 @@ if not DudeWhyld then
     return
 end
 print("✓ DudeWhyld found")
-
-if not StartBattle then
-    warn("❌ StartBattle not found!")
-    return
-end
-print("✓ StartBattle found")
 
 if not BattleAction then
     warn("❌ BattleAction not found!")
@@ -172,14 +165,73 @@ local function GetOutDoodle()
     if not battleData then return nil end
     
     local success, result = pcall(function()
+        local MainGui = Player.PlayerGui:FindFirstChild("MainGui")
+        if not MainGui then return nil end
+        
+        local BattleGui = MainGui:FindFirstChild("MainBattle")
+        if not BattleGui then return nil end
+        
+        local InfoHolder = BattleGui:FindFirstChild("BackBox")
+        if not InfoHolder then return nil end
+        
+        local NameLabel = InfoHolder:FindFirstChild("NameLabel")
+        local LevelLabel = InfoHolder:FindFirstChild("LevelLabel")
+        local Health = InfoHolder:FindFirstChild("Health")
+        if not NameLabel or not LevelLabel or not Health then return nil end
+        
+        local HealthLabel = Health:FindFirstChild("HealthNumber")
+        if not HealthLabel then return nil end
+        
         local Party = battleData["Player1Party"]
-        if Party and Party[1] then
-            return Party[1]
+        if not Party then return nil end
+        
+        local MaxHealth = string.split(HealthLabel.Text,"/")
+        MaxHealth = string.gsub(MaxHealth[2]," ","")
+        MaxHealth = tonumber(MaxHealth)
+        local Level = string.gsub(LevelLabel.Text,"Lv. ","")
+        Level = tonumber(Level)
+        
+        -- Try to match by health, name, and level
+        for i,v in pairs(Party) do
+            if v.Stats and v.Stats.hp == MaxHealth then
+                if v.Name == NameLabel.Text or (v.Doodle and v.Doodle.Nickname == NameLabel.Text) then
+                    if v.Level == Level then
+                        return v
+                    end
+                end
+            end
+        end
+        
+        -- Fallback: match by name only
+        for i,v in pairs(Party) do
+            if v.Name == NameLabel.Text or (v.Doodle and v.Doodle.Nickname == NameLabel.Text) then
+                return v
+            end
+        end
+        
+        -- Last resort: return first party member
+        return Party[1]
+    end)
+    
+    if success then
+        return result
+    end
+    return nil
+end
+
+local function GetEnemyDoodle()
+    local battleData = GetBattleData()
+    if not battleData then return nil end
+    
+    local success, result = pcall(function()
+        -- Try to get the enemy from Player2Party first
+        if battleData["Player2Party"] and battleData["Player2Party"][1] then
+            return battleData["Player2Party"][1]
         end
         return nil
     end)
     
-    if success then
+    if success and result then
         return result
     end
     return nil
@@ -243,10 +295,7 @@ local function PerformBattleAction(myDoodle, enemyDoodle, shouldRun)
     
     print("Performing battle action - Run:", shouldRun)
     
-    task.wait(1) -- Wait for battle to fully load
-    
     local success, err = pcall(function()
-        -- Hide action bar like in working script
         local MainGui = Player.PlayerGui:FindFirstChild("MainGui")
         if MainGui then
             local BattleGui = MainGui:FindFirstChild("MainBattle")
@@ -262,7 +311,6 @@ local function PerformBattleAction(myDoodle, enemyDoodle, shouldRun)
         end
         
         if shouldRun then
-            -- Run away
             print("Running from battle...")
             ClientModule.Network:post("BattleAction", {
                 [1] = {
@@ -272,7 +320,6 @@ local function PerformBattleAction(myDoodle, enemyDoodle, shouldRun)
                 }
             })
         else
-            -- Attack with selected move
             if myDoodle.Moves and myDoodle.Moves[Settings.SelectedMoveSlot] then
                 local moveName = myDoodle.Moves[Settings.SelectedMoveSlot].Name
                 print("Attacking with move:", moveName, "from slot", Settings.SelectedMoveSlot)
@@ -287,7 +334,6 @@ local function PerformBattleAction(myDoodle, enemyDoodle, shouldRun)
                 })
             else
                 warn("No valid move in slot", Settings.SelectedMoveSlot)
-                -- Fallback to run if no move available
                 ClientModule.Network:post("BattleAction", {
                     [1] = {
                         ["Target"] = "RunAway",
@@ -306,99 +352,107 @@ local function PerformBattleAction(myDoodle, enemyDoodle, shouldRun)
     end
 end
 
--- Battle Event Handler
-StartBattle.OnClientEvent:Connect(function(battleData)
-    print("=== BATTLE STARTED ===")
-    print("Farming enabled:", Settings.Enabled)
+-- Auto Battle Loop (from working script - monitors GUI instead of events)
+task.spawn(function()
+    print("✓ Auto Battle Loop started")
     
-    if not Settings.Enabled then 
-        print("Farming is disabled, ignoring battle")
-        return 
-    end
-    
-    if not battleData then
-        warn("No battle data received")
-        return
-    end
-    
-    print("Battle data received, processing...")
-    
-    local wildDoodle = battleData.Player2Party and battleData.Player2Party[1]
-    local myDoodle = battleData.Player1Party and battleData.Player1Party[1]
-    
-    if not wildDoodle then
-        warn("No wild doodle found in battle data")
-        return
-    end
-    
-    if not myDoodle then
-        warn("No player doodle found in battle data")
-        return
-    end
-    
-    print("Wild Doodle found:", wildDoodle.Name or wildDoodle.RealName or "Unknown")
-    print("My Doodle found:", myDoodle.Name or myDoodle.RealName or "Unknown")
-    
-    Stats.Encounters = Stats.Encounters + 1
-    
-    local name = wildDoodle.Name or wildDoodle.RealName or "Unknown"
-    local stars = wildDoodle.Star or 0
-    local isMisprint = wildDoodle.Shiny or (wildDoodle.Color and wildDoodle.Color ~= "Normal")
-    
-    print(string.format("=== Encounter #%d ===", Stats.Encounters))
-    print(string.format("Species: %s", name))
-    print(string.format("Stars: %d⭐", stars))
-    print(string.format("Misprint: %s", isMisprint and "YES" or "NO"))
-    if wildDoodle.HiddenTrait then
-        print("Hidden Trait:", wildDoodle.HiddenTrait)
-    end
-    
-    -- Check if matches filters
-    local isMatch, reason = CheckMatch(wildDoodle)
-    
-    if isMatch then
-        print("✅ ===== MATCH FOUND! =====")
-        print("Reason:", reason)
-        Stats.Found = Stats.Found + 1
+    while true do
+        task.wait(0.5)
         
-        if not Settings.ChainMode then
-            Settings.Enabled = false
-            print("🎉 Target found! Stopping farm.")
-        else
-            Stats.Chain = Stats.Chain + 1
-            print("Chain continued:", Stats.Chain)
+        if not Settings.Enabled then
+            continue
         end
         
-        print("Not running - let player catch it!")
-        return
-    else
-        print("❌ No match -", reason)
-        
-        if Settings.ChainMode then
-            -- Check if same species
-            local isSameSpecies = false
-            if Settings.TargetSpecies ~= "" then
-                local wildName = (wildDoodle.Name or wildDoodle.RealName or ""):lower()
-                local targetName = Settings.TargetSpecies:lower()
-                isSameSpecies = wildName:find(targetName, 1, true) ~= nil
-                print("Species match check:", isSameSpecies and "YES" or "NO")
+        pcall(function()
+            local MainGui = Player.PlayerGui:FindFirstChild("MainGui")
+            if not MainGui then return end
+            
+            local BattleGui = MainGui:FindFirstChild("MainBattle")
+            if not BattleGui or not BattleGui.Visible then return end
+            
+            local BottomBar = BattleGui:FindFirstChild("BottomBar")
+            if not BottomBar then return end
+            
+            local ActionBar = BottomBar:FindFirstChild("Actions")
+            if not ActionBar or not ActionBar.Visible then return end
+            
+            local battleData = GetBattleData()
+            if not battleData then return end
+            
+            local myDoodle = GetOutDoodle()
+            local wildDoodle = GetEnemyDoodle()
+            
+            if not myDoodle then 
+                print("Could not get your doodle")
+                return 
             end
             
-            if isSameSpecies then
-                print("Same species but wrong stats - attacking to chain!")
-                Stats.Chain = Stats.Chain + 1
-                PerformBattleAction(myDoodle, wildDoodle, false)
-            else
-                print("Different species - running away!")
-                PerformBattleAction(myDoodle, wildDoodle, true)
+            if not wildDoodle then
+                print("Could not get wild doodle")
+                return
             end
-        else
-            print("Chain mode disabled - running from battle")
-            PerformBattleAction(myDoodle, wildDoodle, true)
-        end
+            
+            -- Update stats
+            Stats.Encounters = Stats.Encounters + 1
+            
+            local name = wildDoodle.Name or wildDoodle.RealName or "Unknown"
+            local stars = wildDoodle.Star or 0
+            local isMisprint = wildDoodle.Shiny or (wildDoodle.Color and wildDoodle.Color ~= "Normal")
+            
+            print(string.format("=== Encounter #%d ===", Stats.Encounters))
+            print(string.format("Species: %s", name))
+            print(string.format("Stars: %d⭐", stars))
+            print(string.format("Misprint: %s", isMisprint and "YES" or "NO"))
+            if wildDoodle.HiddenTrait then
+                print("Hidden Trait:", wildDoodle.HiddenTrait)
+            end
+            
+            -- Check if matches filters
+            local isMatch, reason = CheckMatch(wildDoodle)
+            
+            if isMatch then
+                print("✅ ===== MATCH FOUND! =====")
+                print("Reason:", reason)
+                Stats.Found = Stats.Found + 1
+                
+                if not Settings.ChainMode then
+                    Settings.Enabled = false
+                    print("🎉 Target found! Stopping farm.")
+                else
+                    Stats.Chain = Stats.Chain + 1
+                    print("Chain continued:", Stats.Chain)
+                end
+                
+                print("Not running - let player catch it!")
+                return
+            else
+                print("❌ No match -", reason)
+                
+                if Settings.ChainMode then
+                    -- Check if same species
+                    local isSameSpecies = false
+                    if Settings.TargetSpecies ~= "" then
+                        local wildName = (wildDoodle.Name or wildDoodle.RealName or ""):lower()
+                        local targetName = Settings.TargetSpecies:lower()
+                        isSameSpecies = wildName:find(targetName, 1, true) ~= nil
+                        print("Species match check:", isSameSpecies and "YES" or "NO")
+                    end
+                    
+                    if isSameSpecies then
+                        print("Same species but wrong stats - attacking to chain!")
+                        Stats.Chain = Stats.Chain + 1
+                        PerformBattleAction(myDoodle, wildDoodle, false)
+                    else
+                        print("Different species - running away!")
+                        PerformBattleAction(myDoodle, wildDoodle, true)
+                    end
+                else
+                    print("Chain mode disabled - running from battle")
+                    PerformBattleAction(myDoodle, wildDoodle, true)
+                end
+            end
+        end)
     end
-    
-    print("=== BATTLE PROCESSING COMPLETE ===")
 end)
 
 -- Create GUI
