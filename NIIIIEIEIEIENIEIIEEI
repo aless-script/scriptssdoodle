@@ -26,16 +26,6 @@ end)
 
 wait(1)
 
--- Verify game ID
-if game.GameId == 0 then
-    repeat wait(0.5) until game.GameId ~= 0
-end
-
-if game.GameId ~= 1775919872 then
-    warn("This script is only for Doodle World!")
-    return
-end
-
 -- Service declarations
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
