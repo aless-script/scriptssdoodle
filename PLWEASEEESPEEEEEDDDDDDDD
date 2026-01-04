@@ -1,4 +1,4 @@
--- Doodle World Auto Battle Script (Updated Structure)
+-- Doodle World Auto Battle Script (Working Version)
 -- Wait for game to load
 repeat task.wait() until game:IsLoaded()
 
@@ -14,16 +14,25 @@ end
 
 local Players = game:GetService("Players")
 local Player = Players.LocalPlayer
+local HttpService = game:GetService("HttpService")
 
 if not Player then
     Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
     Player = Players.LocalPlayer
 end
 
--- Wait for new structure
-local ClientRunner = Player:WaitForChild("ClientRunner", 30)
-if not ClientRunner then
-    warn("ClientRunner not found!")
+print("Loading game structure...")
+
+-- Wait for required components
+local Remotes = Player:WaitForChild("Remotes", 30)
+if not Remotes then
+    warn("Remotes not found!")
+    return
+end
+
+local BattleActionEvent = Remotes:WaitForChild("BattleAction", 30)
+if not BattleActionEvent then
+    warn("BattleAction event not found!")
     return
 end
 
@@ -33,48 +42,39 @@ if not Client then
     return
 end
 
-local Database = ClientRunner:WaitForChild("Database", 30)
-if not Database then
-    warn("Database not found!")
-    return
-end
-
--- Require the Client module
 local ClientModule = require(Client)
-print("Client module loaded successfully!")
+print("Client module loaded!")
 
 -- Global Settings
 _G.AutoBattle = _G.AutoBattle or {
     AutoAttack = false,
     AutoRun = false,
-    SelectedMoves = {nil, nil, nil, nil}
+    SelectedMoveSlot = 1
 }
 
 -- Helper Functions
-local function EndTurn()
-    local success, err = pcall(function()
-        local UpValues = getupvalues(ClientModule.Network.BindEvent)
-        for i,v in pairs(UpValues) do
-            if typeof(v) == "table" and v["ForceEnd"] ~= nil then
-                v.ForceEnd()
-                break
-            end
+local function GetBattleData()
+    local battleData = nil
+    
+    pcall(function()
+        if ClientModule.Battle and ClientModule.Battle.CurrentBattle then
+            battleData = ClientModule.Battle.CurrentBattle
         end
     end)
-    if not success then
-        warn("EndTurn error:", err)
-    end
+    
+    return battleData
 end
 
 local function GetOutDoodle()
+    local battleData = GetBattleData()
+    if not battleData then return nil end
+    
     local success, result = pcall(function()
         local MainGui = Player.PlayerGui:FindFirstChild("MainGui")
         if not MainGui then return nil end
         
         local BattleGui = MainGui:FindFirstChild("MainBattle")
         if not BattleGui then return nil end
-        
-        if not ClientModule.Battle.CurrentBattle then return nil end
         
         local InfoHolder = BattleGui:FindFirstChild("BackBox")
         if not InfoHolder then return nil end
@@ -87,26 +87,30 @@ local function GetOutDoodle()
         local HealthLabel = Health:FindFirstChild("HealthNumber")
         if not HealthLabel then return nil end
         
-        local Party = ClientModule.Battle.CurrentBattle["Player1Party"]
+        local Party = battleData["Player1Party"]
+        if not Party then return nil end
+        
         local MaxHealth = string.split(HealthLabel.Text,"/")
         MaxHealth = string.gsub(MaxHealth[2]," ","")
         MaxHealth = tonumber(MaxHealth)
         local Level = string.gsub(LevelLabel.Text,"Lv. ","")
         Level = tonumber(Level)
         
+        -- Try to match by health, name, and level
         for i,v in pairs(Party) do
             if v.Stats and v.Stats.hp == MaxHealth then
                 if v.Name == NameLabel.Text or (v.Doodle and v.Doodle.Nickname == NameLabel.Text) then
                     if v.Level == Level then
-                        return v, i
+                        return v
                     end
                 end
             end
         end
         
+        -- Fallback: match by name only
         for i,v in pairs(Party) do
             if v.Name == NameLabel.Text or (v.Doodle and v.Doodle.Nickname == NameLabel.Text) then
-                return v, i
+                return v
             end
         end
         
@@ -120,35 +124,23 @@ local function GetOutDoodle()
 end
 
 local function GetEnemyDoodle()
+    local battleData = GetBattleData()
+    if not battleData then return nil end
+    
     local success, result = pcall(function()
-        local MainGui = Player.PlayerGui:FindFirstChild("MainGui")
-        if not MainGui then return nil end
-        
-        local BattleGui = MainGui:FindFirstChild("MainBattle")
-        if not BattleGui then return nil end
-        
-        if not ClientModule.Battle.CurrentBattle then return nil end
-        
-        local InfoHolder = BattleGui:FindFirstChild("FrontBox")
-        if not InfoHolder then return nil end
-        
-        local NameLabel = InfoHolder:FindFirstChild("NameLabel")
-        if not NameLabel then return nil end
-        
         local YourParty = ClientModule.Network:get("PlayerData","GetParty")
         local Party
         
-        if ClientModule.Battle.CurrentBattle["Player2Party"][1].ID ~= YourParty[1].ID then
-            Party = ClientModule.Battle.CurrentBattle["Player2Party"]
+        if battleData["Player2Party"] and battleData["Player2Party"][1] and battleData["Player2Party"][1].ID ~= YourParty[1].ID then
+            Party = battleData["Player2Party"]
         else
-            Party = ClientModule.Battle.CurrentBattle["Player1Party"]
+            Party = battleData["Player1Party"]
         end
         
-        for i,v in pairs(Party) do
-            if v.Name == NameLabel.Text or (v.Doodle and v.Doodle.Nickname == NameLabel.Text) then
-                return v
-            end
+        if Party and Party[1] then
+            return Party[1]
         end
+        
         return nil
     end)
     
@@ -158,11 +150,26 @@ local function GetEnemyDoodle()
     return nil
 end
 
+local function EndTurn()
+    pcall(function()
+        local UpValues = getupvalues(ClientModule.Network.BindEvent)
+        for i,v in pairs(UpValues) do
+            if typeof(v) == "table" and v["ForceEnd"] ~= nil then
+                v.ForceEnd()
+                break
+            end
+        end
+    end)
+end
+
 local function SwitchDoodle(YourDoodle)
     pcall(function()
+        local battleData = GetBattleData()
+        if not battleData then return end
+        
         local MainGui = Player.PlayerGui:WaitForChild("MainGui")
         local PartyGui = MainGui:WaitForChild("PartyUI")
-        local YourParty = ClientModule.Battle.CurrentBattle["Player1Party"]
+        local YourParty = battleData["Player1Party"]
         local SelectedDoodle = nil
         
         for i,v in pairs(YourParty) do
@@ -194,47 +201,11 @@ local function SwitchDoodle(YourDoodle)
     end)
 end
 
-local function GetBestMove(YourDoodle, EnemyDoodle)
-    -- First, try to use selected moves in order
-    for i = 1, 4 do
-        if _G.AutoBattle.SelectedMoves[i] then
-            for _, move in ipairs(YourDoodle.Moves) do
-                if move.Name == _G.AutoBattle.SelectedMoves[i] then
-                    return move.Name
-                end
-            end
-        end
-    end
-    
-    -- If no selected moves available, find best matchup
-    local BestMatchup = nil
-    local HighestMultiplier = -100
-    
-    pcall(function()
-        for i,v in pairs(YourDoodle.Moves) do
-            local MoveData = ClientModule.ClientDatabase:GetMoveData(v.Name)
-            if MoveData then
-                local MoveType = MoveData.Type
-                local Multiplier = ClientModule.Typings:GetEffectiveness(YourDoodle, EnemyDoodle, MoveType)
-                if MoveData.Power and Multiplier > HighestMultiplier then
-                    HighestMultiplier = Multiplier
-                    BestMatchup = v.Name
-                end
-            end
-        end
-    end)
-    
-    -- If still no move found, use random
-    if not BestMatchup and YourDoodle.Moves and #YourDoodle.Moves > 0 then
-        BestMatchup = YourDoodle.Moves[math.random(1, #YourDoodle.Moves)].Name
-    end
-    
-    return BestMatchup
-end
-
 -- Auto Battle Loop
 local function AutoBattleLoop()
     task.spawn(function()
+        print("Auto Battle Loop started!")
+        
         while true do
             task.wait(0.5)
             
@@ -247,7 +218,7 @@ local function AutoBattleLoop()
                 if not MainGui then return end
                 
                 local BattleGui = MainGui:FindFirstChild("MainBattle")
-                if not BattleGui then return end
+                if not BattleGui or not BattleGui.Visible then return end
                 
                 local BottomBar = BattleGui:FindFirstChild("BottomBar")
                 if not BottomBar then return end
@@ -255,20 +226,31 @@ local function AutoBattleLoop()
                 local ActionBar = BottomBar:FindFirstChild("Actions")
                 local PartyGui = MainGui:FindFirstChild("PartyUI")
                 
-                if not ClientModule.Battle.CurrentBattle then return end
+                local battleData = GetBattleData()
+                if not battleData then return end
                 
                 if PartyGui and PartyGui.Visible then
                     local YourDoodle = GetOutDoodle()
                     if YourDoodle then
+                        print("Switching doodle...")
                         SwitchDoodle(YourDoodle)
                     end
                 elseif ActionBar and ActionBar.Visible then
                     local YourDoodle = GetOutDoodle()
                     local EnemyDoodle = GetEnemyDoodle()
                     
-                    if not YourDoodle or not EnemyDoodle then return end
+                    if not YourDoodle then 
+                        print("Could not get your doodle")
+                        return 
+                    end
+                    
+                    if not EnemyDoodle and _G.AutoBattle.AutoAttack then 
+                        print("Could not get enemy doodle")
+                        return 
+                    end
                     
                     if _G.AutoBattle.AutoRun then
+                        print("Running from battle...")
                         ClientModule.Network:post("BattleAction",{
                             [1] = {
                                 ["Target"] = "RunAway",
@@ -279,19 +261,22 @@ local function AutoBattleLoop()
                         ActionBar.Visible = false
                         EndTurn()
                     elseif _G.AutoBattle.AutoAttack then
-                        local MoveToUse = GetBestMove(YourDoodle, EnemyDoodle)
-                        
-                        if MoveToUse then
+                        if YourDoodle.Moves and YourDoodle.Moves[_G.AutoBattle.SelectedMoveSlot] then
+                            local moveName = YourDoodle.Moves[_G.AutoBattle.SelectedMoveSlot].Name
+                            print("Using move:", moveName, "from slot", _G.AutoBattle.SelectedMoveSlot)
+                            
                             ClientModule.Network:post("BattleAction",{
                                 [1] = {
                                     ["Target"] = EnemyDoodle.ID,
                                     ["ActionType"] = "Attack",
-                                    ["Action"] = MoveToUse,
+                                    ["Action"] = moveName,
                                     ["User"] = YourDoodle.ID,
                                 }
                             })
                             ActionBar.Visible = false
                             EndTurn()
+                        else
+                            print("Move slot", _G.AutoBattle.SelectedMoveSlot, "is empty or invalid")
                         end
                     end
                 end
@@ -310,8 +295,8 @@ ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 320, 0, 380)
-MainFrame.Position = UDim2.new(0.5, -160, 0.5, -190)
+MainFrame.Size = UDim2.new(0, 300, 0, 250)
+MainFrame.Position = UDim2.new(0.5, -150, 0.5, -125)
 MainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
 MainFrame.BorderSizePixel = 0
 MainFrame.Parent = ScreenGui
@@ -338,7 +323,7 @@ TitleCorner.Parent = Title
 -- Auto Attack Toggle
 local AutoAttackBtn = Instance.new("TextButton")
 AutoAttackBtn.Name = "AutoAttackBtn"
-AutoAttackBtn.Size = UDim2.new(0, 280, 0, 40)
+AutoAttackBtn.Size = UDim2.new(0, 260, 0, 40)
 AutoAttackBtn.Position = UDim2.new(0, 20, 0, 60)
 AutoAttackBtn.BackgroundColor3 = Color3.fromRGB(255, 75, 75)
 AutoAttackBtn.Text = "Auto Attack: OFF"
@@ -354,7 +339,7 @@ AttackCorner.Parent = AutoAttackBtn
 -- Auto Run Toggle
 local AutoRunBtn = Instance.new("TextButton")
 AutoRunBtn.Name = "AutoRunBtn"
-AutoRunBtn.Size = UDim2.new(0, 280, 0, 40)
+AutoRunBtn.Size = UDim2.new(0, 260, 0, 40)
 AutoRunBtn.Position = UDim2.new(0, 20, 0, 110)
 AutoRunBtn.BackgroundColor3 = Color3.fromRGB(255, 75, 75)
 AutoRunBtn.Text = "Auto Run: OFF"
@@ -367,138 +352,56 @@ local RunCorner = Instance.new("UICorner")
 RunCorner.CornerRadius = UDim.new(0, 8)
 RunCorner.Parent = AutoRunBtn
 
--- Move Selection Label
+-- Move Slot Selection Label
 local MoveLabel = Instance.new("TextLabel")
-MoveLabel.Size = UDim2.new(1, -40, 0, 30)
+MoveLabel.Size = UDim2.new(1, -40, 0, 25)
 MoveLabel.Position = UDim2.new(0, 20, 0, 160)
 MoveLabel.BackgroundTransparency = 1
-MoveLabel.Text = "Move Priority (Select from dropdowns):"
+MoveLabel.Text = "Which Move Slot to Use:"
 MoveLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
 MoveLabel.TextSize = 14
 MoveLabel.Font = Enum.Font.Gotham
 MoveLabel.TextXAlignment = Enum.TextXAlignment.Left
 MoveLabel.Parent = MainFrame
 
--- Dropdown Functions
-local function CreateDropdown(parent, position, index)
-    local Dropdown = Instance.new("Frame")
-    Dropdown.Size = UDim2.new(0, 280, 0, 35)
-    Dropdown.Position = position
-    Dropdown.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-    Dropdown.BorderSizePixel = 0
-    Dropdown.Parent = parent
+-- Move Slot Buttons (1, 2, 3, 4)
+local SlotButtons = {}
+for i = 1, 4 do
+    local SlotBtn = Instance.new("TextButton")
+    SlotBtn.Name = "Slot"..i
+    SlotBtn.Size = UDim2.new(0, 55, 0, 35)
+    SlotBtn.Position = UDim2.new(0, 20 + (i-1) * 65, 0, 195)
+    SlotBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    SlotBtn.Text = tostring(i)
+    SlotBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    SlotBtn.TextSize = 18
+    SlotBtn.Font = Enum.Font.GothamBold
+    SlotBtn.Parent = MainFrame
     
-    local DropCorner = Instance.new("UICorner")
-    DropCorner.CornerRadius = UDim.new(0, 6)
-    DropCorner.Parent = Dropdown
+    local SlotCorner = Instance.new("UICorner")
+    SlotCorner.CornerRadius = UDim.new(0, 6)
+    SlotCorner.Parent = SlotBtn
     
-    local DropButton = Instance.new("TextButton")
-    DropButton.Size = UDim2.new(1, 0, 1, 0)
-    DropButton.BackgroundTransparency = 1
-    DropButton.Text = "Move " .. index .. ": None"
-    DropButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-    DropButton.TextSize = 14
-    DropButton.Font = Enum.Font.Gotham
-    DropButton.Parent = Dropdown
+    SlotButtons[i] = SlotBtn
     
-    local Arrow = Instance.new("TextLabel")
-    Arrow.Size = UDim2.new(0, 20, 1, 0)
-    Arrow.Position = UDim2.new(1, -25, 0, 0)
-    Arrow.BackgroundTransparency = 1
-    Arrow.Text = "▼"
-    Arrow.TextColor3 = Color3.fromRGB(200, 200, 200)
-    Arrow.TextSize = 12
-    Arrow.Font = Enum.Font.Gotham
-    Arrow.Parent = Dropdown
-    
-    local DropdownList = Instance.new("ScrollingFrame")
-    DropdownList.Size = UDim2.new(1, 0, 0, 0)
-    DropdownList.Position = UDim2.new(0, 0, 1, 5)
-    DropdownList.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-    DropdownList.BorderSizePixel = 0
-    DropdownList.Visible = false
-    DropdownList.ClipsDescendants = true
-    DropdownList.ZIndex = 10
-    DropdownList.ScrollBarThickness = 6
-    DropdownList.Parent = Dropdown
-    
-    local ListCorner = Instance.new("UICorner")
-    ListCorner.CornerRadius = UDim.new(0, 6)
-    ListCorner.Parent = DropdownList
-    
-    local ListLayout = Instance.new("UIListLayout")
-    ListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    ListLayout.Padding = UDim.new(0, 2)
-    ListLayout.Parent = DropdownList
-    
-    local function UpdateMoves()
-        for _, child in pairs(DropdownList:GetChildren()) do
-            if child:IsA("TextButton") then
-                child:Destroy()
+    SlotBtn.MouseButton1Click:Connect(function()
+        _G.AutoBattle.SelectedMoveSlot = i
+        
+        -- Update button colors
+        for j = 1, 4 do
+            if j == i then
+                SlotButtons[j].BackgroundColor3 = Color3.fromRGB(75, 150, 255)
+            else
+                SlotButtons[j].BackgroundColor3 = Color3.fromRGB(60, 60, 60)
             end
         end
         
-        -- Add "None" option
-        local NoneBtn = Instance.new("TextButton")
-        NoneBtn.Size = UDim2.new(1, 0, 0, 30)
-        NoneBtn.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
-        NoneBtn.BorderSizePixel = 0
-        NoneBtn.Text = "None"
-        NoneBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        NoneBtn.TextSize = 13
-        NoneBtn.Font = Enum.Font.Gotham
-        NoneBtn.Parent = DropdownList
-        
-        NoneBtn.MouseButton1Click:Connect(function()
-            _G.AutoBattle.SelectedMoves[index] = nil
-            DropButton.Text = "Move " .. index .. ": None"
-            DropdownList.Visible = false
-        end)
-        
-        -- Get current doodle moves
-        pcall(function()
-            if ClientModule.Battle.CurrentBattle then
-                local YourDoodle = GetOutDoodle()
-                if YourDoodle and YourDoodle.Moves then
-                    for _, move in ipairs(YourDoodle.Moves) do
-                        local MoveBtn = Instance.new("TextButton")
-                        MoveBtn.Size = UDim2.new(1, 0, 0, 30)
-                        MoveBtn.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
-                        MoveBtn.BorderSizePixel = 0
-                        MoveBtn.Text = move.Name
-                        MoveBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-                        MoveBtn.TextSize = 13
-                        MoveBtn.Font = Enum.Font.Gotham
-                        MoveBtn.Parent = DropdownList
-                        
-                        MoveBtn.MouseButton1Click:Connect(function()
-                            _G.AutoBattle.SelectedMoves[index] = move.Name
-                            DropButton.Text = "Move " .. index .. ": " .. move.Name
-                            DropdownList.Visible = false
-                        end)
-                    end
-                end
-            end
-        end)
-        
-        local contentSize = ListLayout.AbsoluteContentSize.Y
-        DropdownList.CanvasSize = UDim2.new(0, 0, 0, contentSize)
-        DropdownList.Size = UDim2.new(1, 0, 0, math.min(contentSize + 5, 150))
-    end
-    
-    DropButton.MouseButton1Click:Connect(function()
-        UpdateMoves()
-        DropdownList.Visible = not DropdownList.Visible
+        print("Selected move slot:", i)
     end)
-    
-    return Dropdown
 end
 
--- Create 4 Dropdowns
-local Dropdowns = {}
-for i = 1, 4 do
-    Dropdowns[i] = CreateDropdown(MainFrame, UDim2.new(0, 20, 0, 190 + (i-1) * 42), i)
-end
+-- Set default selection
+SlotButtons[1].BackgroundColor3 = Color3.fromRGB(75, 150, 255)
 
 -- Toggle Functions
 AutoAttackBtn.MouseButton1Click:Connect(function()
@@ -509,9 +412,11 @@ AutoAttackBtn.MouseButton1Click:Connect(function()
         AutoAttackBtn.Text = "Auto Attack: ON"
         AutoRunBtn.BackgroundColor3 = Color3.fromRGB(255, 75, 75)
         AutoRunBtn.Text = "Auto Run: OFF"
+        print("Auto Attack enabled - using move slot:", _G.AutoBattle.SelectedMoveSlot)
     else
         AutoAttackBtn.BackgroundColor3 = Color3.fromRGB(255, 75, 75)
         AutoAttackBtn.Text = "Auto Attack: OFF"
+        print("Auto Attack disabled")
     end
 end)
 
@@ -523,9 +428,11 @@ AutoRunBtn.MouseButton1Click:Connect(function()
         AutoRunBtn.Text = "Auto Run: ON"
         AutoAttackBtn.BackgroundColor3 = Color3.fromRGB(255, 75, 75)
         AutoAttackBtn.Text = "Auto Attack: OFF"
+        print("Auto Run enabled")
     else
         AutoRunBtn.BackgroundColor3 = Color3.fromRGB(255, 75, 75)
         AutoRunBtn.Text = "Auto Run: OFF"
+        print("Auto Run disabled")
     end
 end)
 
@@ -575,4 +482,8 @@ print("GUI Created successfully!")
 AutoBattleLoop()
 
 print("Auto Battle Script Loaded!")
+print("Instructions:")
+print("1. Select move slot 1-4 (which move position to use)")
+print("2. Enable Auto Attack or Auto Run")
+print("3. Enter a battle and it will work automatically!")
 print("_G.AutoBattle settings available globally")
