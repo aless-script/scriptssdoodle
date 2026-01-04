@@ -1,11 +1,36 @@
 -- Doodle World Auto Encounter - COMPLETE FIXED VERSION
 print("Loading Auto Farm...")
 
+-- Check executor compatibility
+local isCompatible = true
+local missingFunctions = {}
+
+if not game.IsLoaded then
+    table.insert(missingFunctions, "game.IsLoaded")
+    isCompatible = false
+end
+
+if not isCompatible then
+    warn("⚠️ Executor may not be fully compatible!")
+    warn("Missing functions:", table.concat(missingFunctions, ", "))
+    warn("Script will attempt to run anyway...")
+    task.wait(2)
+end
+
 -- Wait for game
-repeat task.wait() until game:IsLoaded()
+if game.IsLoaded then
+    repeat task.wait() until game:IsLoaded()
+else
+    task.wait(5) -- Fallback wait
+end
 
 if game.GameId == 0 then
-    game:GetPropertyChangedSignal("GameId"):Wait()
+    local success = pcall(function()
+        game:GetPropertyChangedSignal("GameId"):Wait()
+    end)
+    if not success then
+        task.wait(5)
+    end
 end
 
 -- Services
@@ -156,13 +181,11 @@ end)
 
 -- Disable idle kick (optional, may not work on all executors)
 pcall(function()
-    if getconnections then
-        for _, connection in pairs(getconnections(Player.Idled)) do
-            pcall(function()
-                connection:Disable()
-            end)
-        end
-    end
+    local VirtualUser = game:GetService("VirtualUser")
+    Player.Idled:Connect(function()
+        VirtualUser:CaptureController()
+        VirtualUser:ClickButton2(Vector2.new())
+    end)
 end)
 
 print("✅ Auto Farm Loaded!")
@@ -365,12 +388,17 @@ end
 
 local function EndTurn()
     pcall(function()
-        if getupvalues then
-            local UpValues = getupvalues(ClientModule.Network.BindEvent)
-            for i,v in pairs(UpValues) do
-                if typeof(v) == "table" and v["ForceEnd"] ~= nil then
-                    v.ForceEnd()
-                    break
+        if getupvalues and ClientModule and ClientModule.Network and ClientModule.Network.BindEvent then
+            local success, UpValues = pcall(function()
+                return getupvalues(ClientModule.Network.BindEvent)
+            end)
+            
+            if success and UpValues then
+                for i,v in pairs(UpValues) do
+                    if typeof(v) == "table" and v["ForceEnd"] ~= nil then
+                        v.ForceEnd()
+                        break
+                    end
                 end
             end
         end
