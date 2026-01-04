@@ -1,5 +1,8 @@
 -- Doodle World Auto Encounter System - FIXED
 
+-- Immediate test print
+print("Script starting...")
+
 -- Robust Environment Setup
 local env = nil
 local success, result = pcall(function()
@@ -11,44 +14,123 @@ else
     env = _G or {}
 end
 
+print("Environment setup complete")
+
 -- Safe wait function
-local wait = wait or function(t) 
+local wait = wait or task.wait or function(t) 
     local start = tick()
     repeat until tick() - start >= (t or 0.03)
 end
 
+print("Wait function defined")
+
+-- Check if game exists
+if not game then
+    error("Game object not found!")
+end
+
+print("Game object found")
+
 -- Wait for game to fully load
-repeat wait(0.1) until game:IsLoaded()
+local loaded = false
+pcall(function()
+    repeat wait(0.1) until game:IsLoaded()
+    loaded = true
+end)
+
+if not loaded then
+    print("Waiting alternative method...")
+    wait(3)
+end
+
+print("Game loaded, waiting 1 second...")
 wait(1)
 
+-- Get services safely
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 
+print("Services loaded")
+
 -- Wait for LocalPlayer
 local Player = Players.LocalPlayer
-if not Player then
-    Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
+local attempts = 0
+while not Player and attempts < 50 do
+    wait(0.1)
     Player = Players.LocalPlayer
+    attempts = attempts + 1
+end
+
+if not Player then
+    error("LocalPlayer not found after waiting!")
 end
 
 print("Loading Doodle World Auto Farm...")
 print("Player found:", Player.Name)
 
--- Wait for required components with better error handling
-local Remotes = Player:WaitForChild("Remotes", 30)
+-- Try to find Remotes with multiple attempts
+local Remotes = nil
+for i = 1, 3 do
+    print("Attempting to find Remotes (attempt " .. i .. "/3)...")
+    Remotes = Player:FindFirstChild("Remotes")
+    if Remotes then
+        print("✓ Remotes found!")
+        break
+    end
+    wait(2)
+end
+
+if not Remotes then
+    -- Try WaitForChild as last resort
+    print("Using WaitForChild for Remotes...")
+    local success, result = pcall(function()
+        return Player:WaitForChild("Remotes", 10)
+    end)
+    if success then
+        Remotes = result
+    end
+end
+
 if not Remotes then
     warn("❌ Remotes not found! Make sure you're in Doodle World.")
+    warn("Available children in Player:")
+    for _, child in ipairs(Player:GetChildren()) do
+        warn(" - " .. child.Name)
+    end
     return
 end
-print("✓ Remotes found")
 
-local Client = Player:WaitForChild("Client", 30)
+-- Try to find Client
+local Client = nil
+for i = 1, 3 do
+    print("Attempting to find Client (attempt " .. i .. "/3)...")
+    Client = Player:FindFirstChild("Client")
+    if Client then
+        print("✓ Client found!")
+        break
+    end
+    wait(2)
+end
+
+if not Client then
+    print("Using WaitForChild for Client...")
+    local success, result = pcall(function()
+        return Player:WaitForChild("Client", 10)
+    end)
+    if success then
+        Client = result
+    end
+end
+
 if not Client then
     warn("❌ Client not found! The game structure may have changed.")
+    warn("Available children in Player:")
+    for _, child in ipairs(Player:GetChildren()) do
+        warn(" - " .. child.Name)
+    end
     return
 end
-print("✓ Client found")
 
 -- Try to require Client module
 local ClientModule
@@ -63,35 +145,69 @@ end
 print("✓ Client module loaded")
 
 -- Load Database with error handling
-local Database = Client:WaitForChild("Database", 10)
+local Database = nil
+if Client then
+    Database = Client:FindFirstChild("Database")
+    if not Database then
+        local success, result = pcall(function()
+            return Client:WaitForChild("Database", 10)
+        end)
+        if success then
+            Database = result
+        end
+    end
+end
+
 if not Database then
     warn("❌ Database not found!")
+    warn("Available children in Client:")
+    for _, child in ipairs(Client:GetChildren()) do
+        warn(" - " .. child.Name)
+    end
     return
 end
 print("✓ Database found")
 
-local DoodleInfo
-local doodleSuccess, doodleError = pcall(function()
-    DoodleInfo = require(Database:WaitForChild("DoodleInfo", 10))
-end)
-
-if not doodleSuccess or not DoodleInfo then
-    warn("❌ Failed to load DoodleInfo:", doodleError)
+-- Load DoodleInfo
+local DoodleInfo = nil
+local DoodleInfoModule = Database:FindFirstChild("DoodleInfo")
+if DoodleInfoModule then
+    local doodleSuccess, doodleError = pcall(function()
+        DoodleInfo = require(DoodleInfoModule)
+    end)
+    
+    if not doodleSuccess then
+        warn("❌ Failed to load DoodleInfo:", doodleError)
+        return
+    end
+else
+    warn("❌ DoodleInfo module not found in Database!")
+    warn("Available children in Database:")
+    for _, child in ipairs(Database:GetChildren()) do
+        warn(" - " .. child.Name)
+    end
     return
 end
 print("✓ DoodleInfo loaded")
 
-local Skins
-local skinsSuccess, skinsError = pcall(function()
-    local SkinsModule = Database:WaitForChild("Skins", 10)
-    if SkinsModule then
-        Skins = require(SkinsModule).Sprites
+-- Load Skins
+local Skins = {}
+local SkinsModule = Database:FindFirstChild("Skins")
+if SkinsModule then
+    local skinsSuccess, skinsError = pcall(function()
+        local skinsData = require(SkinsModule)
+        if skinsData and skinsData.Sprites then
+            Skins = skinsData.Sprites
+        end
+    end)
+    
+    if not skinsSuccess then
+        warn("⚠️ Skins module failed to load (non-critical):", skinsError)
+    else
+        print("✓ Skins loaded")
     end
-end)
-
-if not skinsSuccess then
-    warn("⚠️ Skins module failed to load (non-critical):", skinsError)
-    Skins = {}
+else
+    warn("⚠️ Skins module not found (non-critical)")
 end
 
 -- Settings
@@ -120,16 +236,20 @@ local Areas = {"Route_1","006_Route2","007_Lakewood","011_Sewer","010_Route3","0
 -- Get original inventory safely
 local OriginalInventory = {}
 pcall(function()
-    OriginalInventory = ClientModule.Network:get("PlayerData","GetItems")
+    if ClientModule and ClientModule.Network then
+        OriginalInventory = ClientModule.Network:get("PlayerData","GetItems")
+    end
 end)
 
 -- Build Doodle names list
 local DoodleNames = {}
-for i,v in pairs(DoodleInfo) do
-    table.insert(DoodleNames,i)
+if DoodleInfo then
+    for i,v in pairs(DoodleInfo) do
+        table.insert(DoodleNames,i)
+    end
+    table.sort(DoodleNames)
+    print("✓ Loaded", #DoodleNames, "Doodles")
 end
-table.sort(DoodleNames)
-print("✓ Loaded", #DoodleNames, "Doodles")
 
 local RaycastParams = RaycastParams.new()
 RaycastParams.FilterType = Enum.RaycastFilterType.Blacklist
@@ -143,7 +263,16 @@ function Library:CreateWindow(title)
     window.Elements = {}
     
     -- Wait for PlayerGui
-    local PlayerGui = Player:WaitForChild("PlayerGui", 10)
+    local PlayerGui = Player:FindFirstChild("PlayerGui")
+    if not PlayerGui then
+        local success, result = pcall(function()
+            return Player:WaitForChild("PlayerGui", 10)
+        end)
+        if success then
+            PlayerGui = result
+        end
+    end
+    
     if not PlayerGui then
         warn("❌ PlayerGui not found!")
         return nil
