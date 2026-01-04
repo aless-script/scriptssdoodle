@@ -46,35 +46,39 @@ if not BattleAction then
 end
 print("✓ BattleAction found")
 
--- Hook into DudeWhyld to detect zones
-local originalNamecall
-originalNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-    local args = {...}
-    local method = getnamecallmethod()
-    
-    if method == "FireServer" and self == DudeWhyld then
-        local zoneName = args[1]
-        local encounterType = args[2]
+-- Hook into DudeWhyld to detect zones (safer version)
+pcall(function()
+    local originalNamecall
+    originalNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+        local args = {...}
+        local method = getnamecallmethod()
         
-        if zoneName and encounterType then
-            DetectedZones.CurrentZone = zoneName
-            DetectedZones.CurrentEncounterType = encounterType
-            DetectedZones.IsKnownZone = zoneEncounters[zoneName] ~= nil
+        if method == "FireServer" and self.Name == "DudeWhyld" then
+            local zoneName = args[1]
+            local encounterType = args[2]
             
-            if DetectedZones.LearningMode then
-                print("🔍 DETECTED ZONE:", zoneName)
-                print("🔍 ENCOUNTER TYPE:", encounterType)
-                
-                if not zoneEncounters[zoneName] then
-                    print("⚠️ NEW ZONE DETECTED! Not in database.")
-                else
-                    print("✓ Zone already known")
-                end
+            if zoneName and encounterType and type(zoneName) == "string" and type(encounterType) == "string" then
+                pcall(function()
+                    DetectedZones.CurrentZone = zoneName
+                    DetectedZones.CurrentEncounterType = encounterType
+                    DetectedZones.IsKnownZone = zoneEncounters[zoneName] ~= nil
+                    
+                    if DetectedZones.LearningMode then
+                        print("🔍 DETECTED ZONE:", zoneName)
+                        print("🔍 ENCOUNTER TYPE:", encounterType)
+                        
+                        if not zoneEncounters[zoneName] then
+                            print("⚠️ NEW ZONE DETECTED! Not in database.")
+                        else
+                            print("✓ Zone already known")
+                        end
+                    end
+                end)
             end
         end
-    end
-    
-    return originalNamecall(self, ...)
+        
+        return originalNamecall(self, ...)
+    end)
 end)
 
 print("✓ Zone detection hook installed")
@@ -1280,46 +1284,50 @@ learnZoneBtn.MouseButton1Click:Connect(function()
         print("✓ Learning mode disabled")
         
         -- If we detected a new zone, offer to add it
-        if DetectedZones.CurrentZone ~= "Unknown" and not DetectedZones.IsKnownZone then
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            print("🆕 NEW ZONE DETECTED!")
-            print("Zone Name:", DetectedZones.CurrentZone)
-            print("Encounter Type:", DetectedZones.CurrentEncounterType)
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            print("Adding to database...")
-            
-            zoneEncounters[DetectedZones.CurrentZone] = DetectedZones.CurrentEncounterType
-            DetectedZones.IsKnownZone = true
-            
-            print("✅ Zone added successfully!")
-            print("You can now farm in this zone!")
-        end
+        pcall(function()
+            if DetectedZones.CurrentZone and DetectedZones.CurrentZone ~= "Unknown" and not DetectedZones.IsKnownZone then
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print("🆕 NEW ZONE DETECTED!")
+                print("Zone Name:", DetectedZones.CurrentZone)
+                print("Encounter Type:", DetectedZones.CurrentEncounterType or "WildGrass")
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print("Adding to database...")
+                
+                zoneEncounters[DetectedZones.CurrentZone] = DetectedZones.CurrentEncounterType or "WildGrass"
+                DetectedZones.IsKnownZone = true
+                
+                print("✅ Zone added successfully!")
+                print("You can now farm in this zone!")
+            end
+        end)
     end
 end)
 
 -- Update zone display
 task.spawn(function()
     while task.wait(0.5) do
-        if zoneDetectLabel then
-            local statusText = ""
-            local statusColor = Color3.fromRGB(35, 35, 45)
-            
-            if DetectedZones.CurrentZone == "Unknown" then
-                statusText = "📍 CURRENT ZONE: Unknown\n🔍 Status: Not detected yet\n⚡ Type: Unknown"
-                statusColor = Color3.fromRGB(35, 35, 45)
-            elseif DetectedZones.IsKnownZone then
-                statusText = string.format("📍 CURRENT ZONE: %s\n✅ Status: KNOWN - Ready to farm!\n⚡ Type: %s", 
-                    DetectedZones.CurrentZone, DetectedZones.CurrentEncounterType)
-                statusColor = Color3.fromRGB(50, 100, 50)
-            else
-                statusText = string.format("📍 CURRENT ZONE: %s\n⚠️ Status: NEW ZONE DETECTED!\n⚡ Type: %s\nPress button again to add!", 
-                    DetectedZones.CurrentZone, DetectedZones.CurrentEncounterType)
-                statusColor = Color3.fromRGB(180, 100, 50)
+        pcall(function()
+            if zoneDetectLabel and DetectedZones then
+                local statusText = ""
+                local statusColor = Color3.fromRGB(35, 35, 45)
+                
+                if not DetectedZones.CurrentZone or DetectedZones.CurrentZone == "Unknown" then
+                    statusText = "📍 CURRENT ZONE: Unknown\n🔍 Status: Not detected yet\n⚡ Type: Unknown"
+                    statusColor = Color3.fromRGB(35, 35, 45)
+                elseif DetectedZones.IsKnownZone then
+                    statusText = string.format("📍 CURRENT ZONE: %s\n✅ Status: KNOWN - Ready to farm!\n⚡ Type: %s", 
+                        DetectedZones.CurrentZone, DetectedZones.CurrentEncounterType or "Unknown")
+                    statusColor = Color3.fromRGB(50, 100, 50)
+                else
+                    statusText = string.format("📍 CURRENT ZONE: %s\n⚠️ Status: NEW ZONE DETECTED!\n⚡ Type: %s\nPress button again to add!", 
+                        DetectedZones.CurrentZone, DetectedZones.CurrentEncounterType or "Unknown")
+                    statusColor = Color3.fromRGB(180, 100, 50)
+                end
+                
+                zoneDetectLabel.Text = statusText
+                zoneDetectFrame.BackgroundColor3 = statusColor
             end
-            
-            zoneDetectLabel.Text = statusText
-            zoneDetectFrame.BackgroundColor3 = statusColor
-        end
+        end)
     end
 end)
 
