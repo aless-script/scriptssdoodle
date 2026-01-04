@@ -1,752 +1,101 @@
--- Doodle World Auto Encounter System - FIXED
+-- Database Location Finder for Doodle World
+print("=== Searching for Database ===")
 
--- Immediate test print
-print("Script starting...")
-
--- Robust Environment Setup
-local env = nil
-local success, result = pcall(function()
-    return getgenv and getgenv()
-end)
-if success and result then
-    env = result
-else
-    env = _G or {}
-end
-
-print("Environment setup complete")
-
--- Safe wait function
-local wait = wait or task.wait or function(t) 
-    local start = tick()
-    repeat until tick() - start >= (t or 0.03)
-end
-
-print("Wait function defined")
-
--- Check if game exists
-if not game then
-    error("Game object not found!")
-end
-
-print("Game object found")
-
--- Wait for game to fully load
-local loaded = false
-pcall(function()
-    repeat wait(0.1) until game:IsLoaded()
-    loaded = true
-end)
-
-if not loaded then
-    print("Waiting alternative method...")
-    wait(3)
-end
-
-print("Game loaded, waiting 1 second...")
-wait(1)
-
--- Get services safely
-local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
-
-print("Services loaded")
-
--- Wait for LocalPlayer
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ReplicatedFirst = game:GetService("ReplicatedFirst")
 local Player = Players.LocalPlayer
-local attempts = 0
-while not Player and attempts < 50 do
-    wait(0.1)
-    Player = Players.LocalPlayer
-    attempts = attempts + 1
-end
 
-if not Player then
-    error("LocalPlayer not found after waiting!")
-end
-
-print("Loading Doodle World Auto Farm...")
-print("Player found:", Player.Name)
-
--- Try to find Remotes with multiple attempts
-local Remotes = nil
-for i = 1, 3 do
-    print("Attempting to find Remotes (attempt " .. i .. "/3)...")
-    Remotes = Player:FindFirstChild("Remotes")
-    if Remotes then
-        print("✓ Remotes found!")
-        break
-    end
-    wait(2)
-end
-
-if not Remotes then
-    -- Try WaitForChild as last resort
-    print("Using WaitForChild for Remotes...")
-    local success, result = pcall(function()
-        return Player:WaitForChild("Remotes", 10)
-    end)
-    if success then
-        Remotes = result
-    end
-end
-
-if not Remotes then
-    warn("❌ Remotes not found! Make sure you're in Doodle World.")
-    warn("Available children in Player:")
-    for _, child in ipairs(Player:GetChildren()) do
-        warn(" - " .. child.Name)
-    end
-    return
-end
-
--- Try to find Client
-local Client = nil
-for i = 1, 3 do
-    print("Attempting to find Client (attempt " .. i .. "/3)...")
-    Client = Player:FindFirstChild("Client")
-    if Client then
-        print("✓ Client found!")
-        break
-    end
-    wait(2)
-end
-
-if not Client then
-    print("Using WaitForChild for Client...")
-    local success, result = pcall(function()
-        return Player:WaitForChild("Client", 10)
-    end)
-    if success then
-        Client = result
-    end
-end
-
-if not Client then
-    warn("❌ Client not found! The game structure may have changed.")
-    warn("Available children in Player:")
-    for _, child in ipairs(Player:GetChildren()) do
-        warn(" - " .. child.Name)
-    end
-    return
-end
-
--- Try to require Client module
-local ClientModule
-local clientSuccess, clientError = pcall(function()
-    ClientModule = require(Client)
-end)
-
-if not clientSuccess then
-    warn("❌ Failed to load Client module:", clientError)
-    return
-end
-print("✓ Client module loaded")
-
--- Load Database with error handling
-local Database = nil
-if Client then
-    Database = Client:FindFirstChild("Database")
-    if not Database then
-        local success, result = pcall(function()
-            return Client:WaitForChild("Database", 10)
-        end)
-        if success then
-            Database = result
+-- Function to search recursively
+local function searchForDatabase(parent, path, depth)
+    if depth > 5 then return end -- Limit recursion depth
+    
+    for _, child in ipairs(parent:GetChildren()) do
+        local currentPath = path .. "." .. child.Name
+        
+        -- Check if this is Database or DoodleInfo
+        if child.Name == "Database" or child.Name == "DoodleInfo" then
+            print("✓ FOUND:", currentPath, "| ClassName:", child.ClassName)
         end
-    end
-end
-
-if not Database then
-    warn("❌ Database not found!")
-    warn("Available children in Client:")
-    for _, child in ipairs(Client:GetChildren()) do
-        warn(" - " .. child.Name)
-    end
-    return
-end
-print("✓ Database found")
-
--- Load DoodleInfo
-local DoodleInfo = nil
-local DoodleInfoModule = Database:FindFirstChild("DoodleInfo")
-if DoodleInfoModule then
-    local doodleSuccess, doodleError = pcall(function()
-        DoodleInfo = require(DoodleInfoModule)
-    end)
-    
-    if not doodleSuccess then
-        warn("❌ Failed to load DoodleInfo:", doodleError)
-        return
-    end
-else
-    warn("❌ DoodleInfo module not found in Database!")
-    warn("Available children in Database:")
-    for _, child in ipairs(Database:GetChildren()) do
-        warn(" - " .. child.Name)
-    end
-    return
-end
-print("✓ DoodleInfo loaded")
-
--- Load Skins
-local Skins = {}
-local SkinsModule = Database:FindFirstChild("Skins")
-if SkinsModule then
-    local skinsSuccess, skinsError = pcall(function()
-        local skinsData = require(SkinsModule)
-        if skinsData and skinsData.Sprites then
-            Skins = skinsData.Sprites
-        end
-    end)
-    
-    if not skinsSuccess then
-        warn("⚠️ Skins module failed to load (non-critical):", skinsError)
-    else
-        print("✓ Skins loaded")
-    end
-else
-    warn("⚠️ Skins module not found (non-critical)")
-end
-
--- Settings
-local Enabled = false
-local Settings = {
-    Doodle = {
-        Name = "None",
-        Data = {},
-    },
-    Stars = 1,
-    Trait = "Any",
-    Skin = "Any",
-    Misprint = false,
-    Chain = true,
-    AutoHeal = true,
-    AutoCatch = false,
-    BuyCapsules = false,
-    Stationary = false,
-    FastForward = true,
-    RebattlerFarm = false,
-    KeepFarming = false
-}
-
-local Areas = {"Route_1","006_Route2","007_Lakewood","011_Sewer","010_Route3","013_Route4","014_GraphiteLodge","017_Crossroads","018_CrystalCaverns","020_GraphiteForest","022_ForestMaze","024_Route5","028_PirateCabin","025_Sweetsville","031_CandyFactory"}
-
--- Get original inventory safely
-local OriginalInventory = {}
-pcall(function()
-    if ClientModule and ClientModule.Network then
-        OriginalInventory = ClientModule.Network:get("PlayerData","GetItems")
-    end
-end)
-
--- Build Doodle names list
-local DoodleNames = {}
-if DoodleInfo then
-    for i,v in pairs(DoodleInfo) do
-        table.insert(DoodleNames,i)
-    end
-    table.sort(DoodleNames)
-    print("✓ Loaded", #DoodleNames, "Doodles")
-end
-
-local RaycastParams = RaycastParams.new()
-RaycastParams.FilterType = Enum.RaycastFilterType.Blacklist
-
--- Custom GUI Library
-local Library = {}
-Library.__index = Library
-
-function Library:CreateWindow(title)
-    local window = {}
-    window.Elements = {}
-    
-    -- Wait for PlayerGui
-    local PlayerGui = Player:FindFirstChild("PlayerGui")
-    if not PlayerGui then
-        local success, result = pcall(function()
-            return Player:WaitForChild("PlayerGui", 10)
-        end)
-        if success then
-            PlayerGui = result
-        end
-    end
-    
-    if not PlayerGui then
-        warn("❌ PlayerGui not found!")
-        return nil
-    end
-    
-    local ScreenGui = Instance.new("ScreenGui")
-    ScreenGui.Name = "DoodleAutofarmGui"
-    ScreenGui.ResetOnSpawn = false
-    ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    ScreenGui.Parent = PlayerGui
-    
-    local MainFrame = Instance.new("Frame")
-    MainFrame.Name = "MainFrame"
-    MainFrame.Size = UDim2.new(0, 400, 0, 600)
-    MainFrame.Position = UDim2.new(0.5, -200, 0.5, -300)
-    MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
-    MainFrame.BorderSizePixel = 0
-    MainFrame.Parent = ScreenGui
-    
-    local MainCorner = Instance.new("UICorner")
-    MainCorner.CornerRadius = UDim.new(0, 10)
-    MainCorner.Parent = MainFrame
-    
-    local TitleBar = Instance.new("Frame")
-    TitleBar.Name = "TitleBar"
-    TitleBar.Size = UDim2.new(1, 0, 0, 40)
-    TitleBar.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-    TitleBar.BorderSizePixel = 0
-    TitleBar.Parent = MainFrame
-    
-    local TitleCorner = Instance.new("UICorner")
-    TitleCorner.CornerRadius = UDim.new(0, 10)
-    TitleCorner.Parent = TitleBar
-    
-    local TitleLabel = Instance.new("TextLabel")
-    TitleLabel.Name = "TitleLabel"
-    TitleLabel.Size = UDim2.new(1, -50, 1, 0)
-    TitleLabel.Position = UDim2.new(0, 10, 0, 0)
-    TitleLabel.BackgroundTransparency = 1
-    TitleLabel.Text = title
-    TitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-    TitleLabel.TextSize = 18
-    TitleLabel.Font = Enum.Font.GothamBold
-    TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
-    TitleLabel.Parent = TitleBar
-    
-    local CloseButton = Instance.new("TextButton")
-    CloseButton.Name = "CloseButton"
-    CloseButton.Size = UDim2.new(0, 30, 0, 30)
-    CloseButton.Position = UDim2.new(1, -35, 0, 5)
-    CloseButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-    CloseButton.Text = "X"
-    CloseButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-    CloseButton.TextSize = 16
-    CloseButton.Font = Enum.Font.GothamBold
-    CloseButton.Parent = TitleBar
-    
-    local CloseCorner = Instance.new("UICorner")
-    CloseCorner.CornerRadius = UDim.new(0, 8)
-    CloseCorner.Parent = CloseButton
-    
-    CloseButton.MouseButton1Click:Connect(function()
-        ScreenGui:Destroy()
-    end)
-    
-    local ContentFrame = Instance.new("ScrollingFrame")
-    ContentFrame.Name = "ContentFrame"
-    ContentFrame.Size = UDim2.new(1, -20, 1, -60)
-    ContentFrame.Position = UDim2.new(0, 10, 0, 50)
-    ContentFrame.BackgroundTransparency = 1
-    ContentFrame.BorderSizePixel = 0
-    ContentFrame.ScrollBarThickness = 6
-    ContentFrame.Parent = MainFrame
-    
-    local ContentLayout = Instance.new("UIListLayout")
-    ContentLayout.Padding = UDim.new(0, 8)
-    ContentLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    ContentLayout.Parent = ContentFrame
-    
-    window.ScreenGui = ScreenGui
-    window.MainFrame = MainFrame
-    window.ContentFrame = ContentFrame
-    window.ContentLayout = ContentLayout
-    
-    local dragging, dragStart, startPos
-    
-    TitleBar.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = true
-            dragStart = input.Position
-            startPos = MainFrame.Position
-            
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                end
+        
+        -- Check if it's a ModuleScript that might contain Database
+        if child:IsA("ModuleScript") then
+            local success, result = pcall(function()
+                return require(child)
             end)
-        end
-    end)
-    
-    local dragInput
-    TitleBar.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement then
-            dragInput = input
-        end
-    end)
-    
-    UserInputService.InputChanged:Connect(function(input)
-        if input == dragInput and dragging then
-            local delta = input.Position - dragStart
-            MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-        end
-    end)
-    
-    ContentLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-        ContentFrame.CanvasSize = UDim2.new(0, 0, 0, ContentLayout.AbsoluteContentSize.Y + 10)
-    end)
-    
-    function window:Section(text)
-        local SectionLabel = Instance.new("TextLabel")
-        SectionLabel.Size = UDim2.new(1, 0, 0, 30)
-        SectionLabel.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
-        SectionLabel.BorderSizePixel = 0
-        SectionLabel.Text = text
-        SectionLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-        SectionLabel.TextSize = 14
-        SectionLabel.Font = Enum.Font.GothamBold
-        SectionLabel.Parent = self.ContentFrame
-        
-        local SectionCorner = Instance.new("UICorner")
-        SectionCorner.CornerRadius = UDim.new(0, 6)
-        SectionCorner.Parent = SectionLabel
-        
-        return SectionLabel
-    end
-    
-    function window:Toggle(text, options, callback)
-        local ToggleFrame = Instance.new("Frame")
-        ToggleFrame.Size = UDim2.new(1, 0, 0, 35)
-        ToggleFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
-        ToggleFrame.BorderSizePixel = 0
-        ToggleFrame.Parent = self.ContentFrame
-        
-        local ToggleCorner = Instance.new("UICorner")
-        ToggleCorner.CornerRadius = UDim.new(0, 6)
-        ToggleCorner.Parent = ToggleFrame
-        
-        local ToggleLabel = Instance.new("TextLabel")
-        ToggleLabel.Size = UDim2.new(1, -80, 1, 0)
-        ToggleLabel.Position = UDim2.new(0, 10, 0, 0)
-        ToggleLabel.BackgroundTransparency = 1
-        ToggleLabel.Text = text
-        ToggleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-        ToggleLabel.TextSize = 14
-        ToggleLabel.Font = Enum.Font.Gotham
-        ToggleLabel.TextXAlignment = Enum.TextXAlignment.Left
-        ToggleLabel.Parent = ToggleFrame
-        
-        local ToggleButton = Instance.new("TextButton")
-        ToggleButton.Size = UDim2.new(0, 60, 0, 25)
-        ToggleButton.Position = UDim2.new(1, -70, 0.5, -12.5)
-        ToggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-        ToggleButton.Text = "OFF"
-        ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-        ToggleButton.TextSize = 12
-        ToggleButton.Font = Enum.Font.GothamBold
-        ToggleButton.Parent = ToggleFrame
-        
-        local ButtonCorner = Instance.new("UICorner")
-        ButtonCorner.CornerRadius = UDim.new(0, 6)
-        ButtonCorner.Parent = ToggleButton
-        
-        local toggled = false
-        ToggleButton.MouseButton1Click:Connect(function()
-            toggled = not toggled
-            if toggled then
-                ToggleButton.BackgroundColor3 = Color3.fromRGB(50, 200, 50)
-                ToggleButton.Text = "ON"
-            else
-                ToggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-                ToggleButton.Text = "OFF"
-            end
-            callback(toggled)
-        end)
-        
-        return {Object = ToggleButton, Frame = ToggleFrame}
-    end
-    
-    function window:Slider(text, options, callback)
-        local SliderFrame = Instance.new("Frame")
-        SliderFrame.Size = UDim2.new(1, 0, 0, 50)
-        SliderFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
-        SliderFrame.BorderSizePixel = 0
-        SliderFrame.Parent = self.ContentFrame
-        
-        local SliderCorner = Instance.new("UICorner")
-        SliderCorner.CornerRadius = UDim.new(0, 6)
-        SliderCorner.Parent = SliderFrame
-        
-        local SliderLabel = Instance.new("TextLabel")
-        SliderLabel.Size = UDim2.new(1, -80, 0, 20)
-        SliderLabel.Position = UDim2.new(0, 10, 0, 5)
-        SliderLabel.BackgroundTransparency = 1
-        SliderLabel.Text = text
-        SliderLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-        SliderLabel.TextSize = 14
-        SliderLabel.Font = Enum.Font.Gotham
-        SliderLabel.TextXAlignment = Enum.TextXAlignment.Left
-        SliderLabel.Parent = SliderFrame
-        
-        local ValueLabel = Instance.new("TextLabel")
-        ValueLabel.Size = UDim2.new(0, 60, 0, 20)
-        ValueLabel.Position = UDim2.new(1, -70, 0, 5)
-        ValueLabel.BackgroundTransparency = 1
-        ValueLabel.Text = tostring(options.min or 0)
-        ValueLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-        ValueLabel.TextSize = 14
-        ValueLabel.Font = Enum.Font.GothamBold
-        ValueLabel.Parent = SliderFrame
-        
-        local SliderBar = Instance.new("Frame")
-        SliderBar.Size = UDim2.new(1, -20, 0, 6)
-        SliderBar.Position = UDim2.new(0, 10, 1, -15)
-        SliderBar.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
-        SliderBar.BorderSizePixel = 0
-        SliderBar.Parent = SliderFrame
-        
-        local BarCorner = Instance.new("UICorner")
-        BarCorner.CornerRadius = UDim.new(0, 3)
-        BarCorner.Parent = SliderBar
-        
-        local SliderFill = Instance.new("Frame")
-        SliderFill.Size = UDim2.new(0, 0, 1, 0)
-        SliderFill.BackgroundColor3 = Color3.fromRGB(75, 150, 255)
-        SliderFill.BorderSizePixel = 0
-        SliderFill.Parent = SliderBar
-        
-        local FillCorner = Instance.new("UICorner")
-        FillCorner.CornerRadius = UDim.new(0, 3)
-        FillCorner.Parent = SliderFill
-        
-        local min = options.min or 0
-        local max = options.max or 100
-        local currentValue = min
-        
-        local function updateSlider(input)
-            local pos = math.clamp((input.Position.X - SliderBar.AbsolutePosition.X) / SliderBar.AbsoluteSize.X, 0, 1)
-            currentValue = math.floor(min + (max - min) * pos)
-            ValueLabel.Text = tostring(currentValue)
-            SliderFill.Size = UDim2.new(pos, 0, 1, 0)
-            callback(currentValue)
-        end
-        
-        local dragging = false
-        SliderBar.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                dragging = true
-                updateSlider(input)
-            end
-        end)
-        
-        SliderBar.InputEnded:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                dragging = false
-            end
-        end)
-        
-        UserInputService.InputChanged:Connect(function(input)
-            if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-                updateSlider(input)
-            end
-        end)
-        
-        return {Object = SliderBar, ValueLabel = ValueLabel}
-    end
-    
-    function window:SearchBox(text, options, callback)
-        local SearchFrame = Instance.new("Frame")
-        SearchFrame.Size = UDim2.new(1, 0, 0, 35)
-        SearchFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
-        SearchFrame.BorderSizePixel = 0
-        SearchFrame.Parent = self.ContentFrame
-        
-        local SearchCorner = Instance.new("UICorner")
-        SearchCorner.CornerRadius = UDim.new(0, 6)
-        SearchCorner.Parent = SearchFrame
-        
-        local SearchLabel = Instance.new("TextLabel")
-        SearchLabel.Size = UDim2.new(0.4, 0, 1, 0)
-        SearchLabel.Position = UDim2.new(0, 10, 0, 0)
-        SearchLabel.BackgroundTransparency = 1
-        SearchLabel.Text = text
-        SearchLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-        SearchLabel.TextSize = 14
-        SearchLabel.Font = Enum.Font.Gotham
-        SearchLabel.TextXAlignment = Enum.TextXAlignment.Left
-        SearchLabel.Parent = SearchFrame
-        
-        local SearchBox = Instance.new("TextBox")
-        SearchBox.Size = UDim2.new(0.55, -10, 0, 25)
-        SearchBox.Position = UDim2.new(0.45, 0, 0.5, -12.5)
-        SearchBox.BackgroundColor3 = Color3.fromRGB(50, 50, 55)
-        SearchBox.Text = ""
-        SearchBox.PlaceholderText = "Search or type..."
-        SearchBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-        SearchBox.PlaceholderColor3 = Color3.fromRGB(150, 150, 150)
-        SearchBox.TextSize = 12
-        SearchBox.Font = Enum.Font.Gotham
-        SearchBox.ClearTextOnFocus = false
-        SearchBox.Parent = SearchFrame
-        
-        local BoxCorner = Instance.new("UICorner")
-        BoxCorner.CornerRadius = UDim.new(0, 6)
-        BoxCorner.Parent = SearchBox
-        
-        local ResultsList = Instance.new("Frame")
-        ResultsList.Size = UDim2.new(0.55, -10, 0, 0)
-        ResultsList.Position = UDim2.new(0.45, 0, 1, 5)
-        ResultsList.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
-        ResultsList.BorderSizePixel = 0
-        ResultsList.Visible = false
-        ResultsList.ZIndex = 10
-        ResultsList.Parent = SearchFrame
-        
-        local ResultsCorner = Instance.new("UICorner")
-        ResultsCorner.CornerRadius = UDim.new(0, 6)
-        ResultsCorner.Parent = ResultsList
-        
-        local ResultsScroll = Instance.new("ScrollingFrame")
-        ResultsScroll.Size = UDim2.new(1, -4, 1, -4)
-        ResultsScroll.Position = UDim2.new(0, 2, 0, 2)
-        ResultsScroll.BackgroundTransparency = 1
-        ResultsScroll.BorderSizePixel = 0
-        ResultsScroll.ScrollBarThickness = 4
-        ResultsScroll.Parent = ResultsList
-        
-        local ResultsLayout = Instance.new("UIListLayout")
-        ResultsLayout.Padding = UDim.new(0, 2)
-        ResultsLayout.SortOrder = Enum.SortOrder.LayoutOrder
-        ResultsLayout.Parent = ResultsScroll
-        
-        local function updateResults(query)
-            for _, child in ipairs(ResultsScroll:GetChildren()) do
-                if child:IsA("TextButton") then
-                    child:Destroy()
+            
+            if success and type(result) == "table" then
+                if result.Database or result.DoodleInfo then
+                    print("✓ FOUND IN MODULE:", currentPath)
+                    if result.Database then
+                        print("  → Has Database property")
+                    end
+                    if result.DoodleInfo then
+                        print("  → Has DoodleInfo property")
+                    end
                 end
             end
-            
-            if query == "" or not options.list then
-                ResultsList.Visible = false
-                return
-            end
-            
-            local matches = {}
-            query = query:lower()
-            
-            for _, item in ipairs(options.list) do
-                if item:lower():find(query, 1, true) then
-                    table.insert(matches, item)
-                end
-            end
-            
-            if #matches == 0 then
-                ResultsList.Visible = false
-                return
-            end
-            
-            for _, item in ipairs(matches) do
-                local ItemButton = Instance.new("TextButton")
-                ItemButton.Size = UDim2.new(1, -8, 0, 25)
-                ItemButton.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
-                ItemButton.Text = item
-                ItemButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-                ItemButton.TextSize = 12
-                ItemButton.Font = Enum.Font.Gotham
-                ItemButton.TextTruncate = Enum.TextTruncate.AtEnd
-                ItemButton.Parent = ResultsScroll
-                
-                local ItemCorner = Instance.new("UICorner")
-                ItemCorner.CornerRadius = UDim.new(0, 4)
-                ItemCorner.Parent = ItemButton
-                
-                ItemButton.MouseButton1Click:Connect(function()
-                    SearchBox.Text = item
-                    ResultsList.Visible = false
-                    callback(item)
-                end)
-                
-                ItemButton.MouseEnter:Connect(function()
-                    ItemButton.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
-                end)
-                
-                ItemButton.MouseLeave:Connect(function()
-                    ItemButton.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
-                end)
-            end
-            
-            ResultsList.Visible = true
-            local contentHeight = math.min(ResultsLayout.AbsoluteContentSize.Y + 4, 200)
-            ResultsList.Size = UDim2.new(0.55, -10, 0, contentHeight)
-            ResultsScroll.CanvasSize = UDim2.new(0, 0, 0, ResultsLayout.AbsoluteContentSize.Y + 4)
         end
         
-        SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
-            updateResults(SearchBox.Text)
-        end)
-        
-        SearchBox.FocusLost:Connect(function(enterPressed)
-            if enterPressed and SearchBox.Text ~= "" then
-                callback(SearchBox.Text)
-            end
-            task.wait(0.1)
-            ResultsList.Visible = false
-        end)
-        
-        return {Object = SearchBox, Frame = SearchFrame}
+        -- Continue searching children
+        if child:IsA("Folder") or child:IsA("ModuleScript") or child.Name:match("Client") or child.Name:match("Script") then
+            searchForDatabase(child, currentPath, depth + 1)
+        end
+    end
+end
+
+-- Search in LocalPlayer
+print("\n--- Searching in LocalPlayer ---")
+for _, child in ipairs(Player:GetChildren()) do
+    print("Found in Player:", child.Name, "| Type:", child.ClassName)
+    if child:IsA("ModuleScript") or child:IsA("Folder") or child.Name == "Client" then
+        searchForDatabase(child, "game.Players.LocalPlayer." .. child.Name, 1)
+    end
+end
+
+-- Search in PlayerScripts
+print("\n--- Searching in PlayerScripts ---")
+local PlayerScripts = Player:FindFirstChild("PlayerScripts")
+if PlayerScripts then
+    searchForDatabase(PlayerScripts, "game.Players.LocalPlayer.PlayerScripts", 0)
+else
+    print("PlayerScripts not found")
+end
+
+-- Search in ReplicatedStorage
+print("\n--- Searching in ReplicatedStorage ---")
+searchForDatabase(ReplicatedStorage, "game.ReplicatedStorage", 0)
+
+-- Search in ReplicatedFirst
+print("\n--- Searching in ReplicatedFirst ---")
+searchForDatabase(ReplicatedFirst, "game.ReplicatedFirst", 0)
+
+-- Also check if Client exists and what it contains
+print("\n--- Checking Client Module ---")
+local Client = Player:FindFirstChild("Client")
+if Client then
+    print("Client found! Children:")
+    for _, child in ipairs(Client:GetChildren()) do
+        print(" -", child.Name, "| Type:", child.ClassName)
     end
     
-    return window
+    -- Try to require it
+    local success, clientModule = pcall(function()
+        return require(Client)
+    end)
+    
+    if success then
+        print("\nClient module properties:")
+        for key, value in pairs(clientModule) do
+            print(" -", key, "| Type:", type(value))
+            if key == "Database" or key == "DoodleInfo" then
+                print("   ✓✓✓ FOUND DATABASE HERE! ✓✓✓")
+            end
+        end
+    end
+else
+    print("Client not found in LocalPlayer")
 end
 
--- Create GUI
-print("Creating GUI...")
-local Window = Library:CreateWindow("Doodle Autofarm v2.0")
-
-if not Window then
-    warn("❌ Failed to create GUI window!")
-    return
-end
-
-Window:Section("Main Controls")
-
-local GuiObjects = {}
-
-GuiObjects.EnabledToggle = Window:Toggle("Start Farming", {}, function(value)
-    Enabled = value
-    print("Farming", value and "enabled" or "disabled")
-end)
-
-Window:Section("Autofarm Options")
-
-GuiObjects.ChainToggle = Window:Toggle("Build Chain", {}, function(value)
-    Settings.Chain = value
-end)
-
-GuiObjects.AutoHealToggle = Window:Toggle("Auto Heal", {}, function(value)
-    Settings.AutoHeal = value
-end)
-
-GuiObjects.StationaryToggle = Window:Toggle("Current Spot Only", {}, function(value)
-    Settings.Stationary = value
-end)
-
-Window:Section("Catch Filters")
-
-GuiObjects.StarSlider = Window:Slider("Minimum Stars", {min=1, max=6}, function(value)
-    Settings.Stars = value
-end)
-
-GuiObjects.DoodleSelection = Window:SearchBox("Doodle to Catch", {list=DoodleNames}, function(input)
-    if DoodleInfo[input] then
-        Settings.Doodle = {Name = input, Data = DoodleInfo[input]}
-        print("Selected Doodle:", input)
-    else
-        Settings.Doodle = {Name = "None", Data = {}}
-    end
-end)
-
--- Disable idle kick
-pcall(function()
-    for i,v in pairs(getconnections(Player.Idled)) do
-        v:Disable()
-    end
-end)
-
-print("✅ Doodle Autofarm Loaded Successfully!")
-print("GUI should be visible on your screen")
+print("\n=== Search Complete ===")
+print("Look for lines with ✓ FOUND above")
