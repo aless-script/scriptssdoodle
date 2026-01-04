@@ -1,6 +1,5 @@
--- Doodle World Auto Encounter System - FIXED
+-- Doodle World Auto Encounter System - UPDATED WITH WORKING REMOTES
 
--- Immediate test print
 print("Script starting...")
 
 -- Robust Environment Setup
@@ -24,54 +23,60 @@ end
 
 print("Wait function defined")
 
--- Check if game exists
-if not game then
-    error("Game object not found!")
-end
-
-print("Game object found")
-
 -- Wait for game to fully load
-local loaded = false
-pcall(function()
-    repeat wait(0.1) until game:IsLoaded()
-    loaded = true
-end)
-
-if not loaded then
-    print("Waiting alternative method...")
-    wait(3)
-end
-
-print("Game loaded, waiting 1 second...")
+repeat wait(0.1) until game:IsLoaded()
 wait(1)
 
 -- Get services safely
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
 
 print("Services loaded")
 
 -- Wait for LocalPlayer
 local Player = Players.LocalPlayer
-local attempts = 0
-while not Player and attempts < 50 do
-    wait(0.1)
-    Player = Players.LocalPlayer
-    attempts = attempts + 1
-end
-
 if not Player then
-    error("LocalPlayer not found after waiting!")
+    Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
+    Player = Players.LocalPlayer
 end
 
 print("Loading Doodle World Auto Farm...")
 print("Player found:", Player.Name)
 
+-- Wait for Remotes
+local Remotes = Player:WaitForChild("Remotes", 30)
+if not Remotes then
+    warn("❌ Remotes not found!")
+    return
+end
+print("✓ Remotes found")
+
+-- Get the correct remote for encounters
+local DudeWhyld = Remotes:WaitForChild("DudeWhyld", 10)
+if not DudeWhyld then
+    warn("❌ DudeWhyld remote not found!")
+    return
+end
+print("✓ DudeWhyld encounter remote found")
+
+-- Get battle start event
+local StartBattle = Remotes:WaitForChild("StartBattle", 10)
+if not StartBattle then
+    warn("❌ StartBattle event not found!")
+end
+
+-- Get battle action remote
+local BattleAction = Remotes:WaitForChild("BattleAction", 10)
+if not BattleAction then
+    warn("❌ BattleAction remote not found!")
+end
+
 -- Try to find Client or ClientRunner
 local Client = nil
 local ClientRunner = nil
+local ClientModule = nil
 
 ClientRunner = Player:FindFirstChild("ClientRunner")
 if ClientRunner then
@@ -81,20 +86,6 @@ end
 Client = Player:FindFirstChild("Client")
 if Client then
     print("✓ Client found!")
-end
-
-if not Client and not ClientRunner then
-    warn("❌ Neither Client nor ClientRunner found!")
-    warn("Available children in Player:")
-    for _, child in ipairs(Player:GetChildren()) do
-        warn(" - " .. child.Name)
-    end
-    return
-end
-
--- Try to require Client module if it exists
-local ClientModule = nil
-if Client then
     local clientSuccess, clientError = pcall(function()
         ClientModule = require(Client)
     end)
@@ -109,7 +100,6 @@ end
 -- Load Database - Try both locations
 local Database = nil
 
--- First try: ClientRunner.Database
 if ClientRunner then
     Database = ClientRunner:FindFirstChild("Database")
     if Database then
@@ -117,7 +107,6 @@ if ClientRunner then
     end
 end
 
--- Second try: Client.ClientDatabase
 if not Database and Client then
     local ClientDatabase = Client:FindFirstChild("ClientDatabase")
     if ClientDatabase then
@@ -126,7 +115,6 @@ if not Database and Client then
     end
 end
 
--- Third try: Client.Database
 if not Database and Client then
     Database = Client:FindFirstChild("Database")
     if Database then
@@ -135,19 +123,7 @@ if not Database and Client then
 end
 
 if not Database then
-    warn("❌ Database not found in any location!")
-    if ClientRunner then
-        warn("Available children in ClientRunner:")
-        for _, child in ipairs(ClientRunner:GetChildren()) do
-            warn(" - " .. child.Name)
-        end
-    end
-    if Client then
-        warn("Available children in Client:")
-        for _, child in ipairs(Client:GetChildren()) do
-            warn(" - " .. child.Name)
-        end
-    end
+    warn("❌ Database not found!")
     return
 end
 
@@ -165,33 +141,41 @@ if DoodleInfoModule then
     end
     print("✓ DoodleInfo loaded")
 else
-    warn("❌ DoodleInfo module not found in Database!")
-    warn("Available children in Database:")
-    for _, child in ipairs(Database:GetChildren()) do
-        warn(" - " .. child.Name)
-    end
+    warn("❌ DoodleInfo module not found!")
     return
 end
 
--- Load Skins
-local Skins = {}
-local SkinsModule = Database:FindFirstChild("Skins")
-if SkinsModule then
-    local skinsSuccess, skinsError = pcall(function()
-        local skinsData = require(SkinsModule)
-        if skinsData and skinsData.Sprites then
-            Skins = skinsData.Sprites
-        end
-    end)
-    
-    if not skinsSuccess then
-        warn("⚠️ Skins module failed to load (non-critical):", skinsError)
-    else
-        print("✓ Skins loaded")
+-- Build Doodle names list
+local DoodleNames = {}
+if DoodleInfo then
+    for i,v in pairs(DoodleInfo) do
+        table.insert(DoodleNames,i)
     end
-else
-    warn("⚠️ Skins module not found (non-critical)")
+    table.sort(DoodleNames)
+    print("✓ Loaded", #DoodleNames, "Doodles")
 end
+
+-- Zone Map (from working script)
+local zoneEncounters = {
+    ["025_Sweetsville"] = "WildGrass",
+    ["033_Academy"] = "WildGrass",
+    ["029_SubwayStation"] = "WildGrass",
+    ["TheCarnival"] = "WildGrass",
+    ["Route_1"] = "WildGrass",
+    ["006_Route2"] = "WildGrass",
+    ["007_Lakewood"] = "WildGrass",
+    ["011_Sewer"] = "WildGrass",
+    ["010_Route3"] = "WildGrass",
+    ["013_Route4"] = "WildGrass",
+    ["014_GraphiteLodge"] = "WildGrass",
+    ["017_Crossroads"] = "WildGrass",
+    ["018_CrystalCaverns"] = "WildGrass",
+    ["020_GraphiteForest"] = "WildGrass",
+    ["022_ForestMaze"] = "WildGrass",
+    ["024_Route5"] = "WildGrass",
+    ["028_PirateCabin"] = "WildGrass",
+    ["031_CandyFactory"] = "WildGrass"
+}
 
 -- Settings
 local Enabled = false
@@ -207,35 +191,203 @@ local Settings = {
     Chain = true,
     AutoHeal = true,
     AutoCatch = false,
-    BuyCapsules = false,
+    AutoRun = false,
+    SelectedMoveSlot = 1,
     Stationary = false,
-    FastForward = true,
-    RebattlerFarm = false,
-    KeepFarming = false
+    EncounterDelay = 2
 }
 
-local Areas = {"Route_1","006_Route2","007_Lakewood","011_Sewer","010_Route3","013_Route4","014_GraphiteLodge","017_Crossroads","018_CrystalCaverns","020_GraphiteForest","022_ForestMaze","024_Route5","028_PirateCabin","025_Sweetsville","031_CandyFactory"}
+local Stats = {
+    Encounters = 0,
+    Chain = 0,
+    Found = 0
+}
 
--- Get original inventory safely
-local OriginalInventory = {}
-pcall(function()
-    if ClientModule and ClientModule.Network then
-        OriginalInventory = ClientModule.Network:get("PlayerData","GetItems")
-    end
-end)
-
--- Build Doodle names list
-local DoodleNames = {}
-if DoodleInfo then
-    for i,v in pairs(DoodleInfo) do
-        table.insert(DoodleNames,i)
-    end
-    table.sort(DoodleNames)
-    print("✓ Loaded", #DoodleNames, "Doodles")
+-- Helper Functions
+local function GetBattleData()
+    local battleData = nil
+    
+    pcall(function()
+        if ClientModule and ClientModule.Battle and ClientModule.Battle.CurrentBattle then
+            battleData = ClientModule.Battle.CurrentBattle
+        end
+    end)
+    
+    return battleData
 end
 
-local RaycastParams = RaycastParams.new()
-RaycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+local function GetOutDoodle()
+    local battleData = GetBattleData()
+    if not battleData then return nil end
+    
+    local success, result = pcall(function()
+        local MainGui = Player.PlayerGui:FindFirstChild("MainGui")
+        if not MainGui then return nil end
+        
+        local BattleGui = MainGui:FindFirstChild("MainBattle")
+        if not BattleGui then return nil end
+        
+        local InfoHolder = BattleGui:FindFirstChild("BackBox")
+        if not InfoHolder then return nil end
+        
+        local Party = battleData["Player1Party"]
+        if not Party then return nil end
+        
+        return Party[1] -- Return first doodle
+    end)
+    
+    if success then
+        return result
+    end
+    return nil
+end
+
+local function CheckMatch(wildDoodle)
+    if not wildDoodle then return false, "No Doodle" end
+    
+    -- Check species
+    if Settings.Doodle.Name ~= "None" then
+        local name = (wildDoodle.Name or wildDoodle.RealName or ""):lower()
+        local targetName = Settings.Doodle.Name:lower()
+        if not name:find(targetName, 1, true) then
+            return false, "Wrong Species"
+        end
+    end
+    
+    -- Check stars
+    local stars = wildDoodle.Star or 0
+    if stars < Settings.Stars then
+        return false, "Low Stars (" .. stars .. "/" .. Settings.Stars .. ")"
+    end
+    
+    -- Check misprint
+    if Settings.Misprint then
+        local isMisprint = wildDoodle.Shiny or (wildDoodle.Color and wildDoodle.Color ~= "Normal")
+        if not isMisprint then
+            return false, "Not Misprint"
+        end
+    end
+    
+    return true, "Match Found!"
+end
+
+local function EndTurn()
+    pcall(function()
+        local UpValues = getupvalues(ClientModule.Network.BindEvent)
+        for i,v in pairs(UpValues) do
+            if typeof(v) == "table" and v["ForceEnd"] ~= nil then
+                v.ForceEnd()
+                break
+            end
+        end
+    end)
+end
+
+local function PerformBattleAction(myDoodle, enemyDoodle, shouldRun)
+    if not myDoodle then return end
+    
+    pcall(function()
+        if shouldRun then
+            -- Run away
+            ClientModule.Network:post("BattleAction", {
+                [1] = {
+                    ["Target"] = "RunAway",
+                    ["ActionType"] = "Run",
+                    ["User"] = myDoodle.ID,
+                }
+            })
+        else
+            -- Attack with selected move slot
+            if myDoodle.Moves and myDoodle.Moves[Settings.SelectedMoveSlot] then
+                local moveName = myDoodle.Moves[Settings.SelectedMoveSlot].Name
+                
+                ClientModule.Network:post("BattleAction", {
+                    [1] = {
+                        ["Target"] = enemyDoodle and enemyDoodle.ID or myDoodle.ID,
+                        ["ActionType"] = "Attack",
+                        ["Action"] = moveName,
+                        ["User"] = myDoodle.ID,
+                    }
+                })
+            end
+        end
+        
+        EndTurn()
+    end)
+end
+
+-- Battle Event Handler
+if StartBattle then
+    StartBattle.OnClientEvent:Connect(function(battleData)
+        if not Enabled then return end
+        
+        task.wait(0.5) -- Small delay for battle to initialize
+        
+        local wildDoodle = battleData.Player2Party and battleData.Player2Party[1]
+        local myDoodle = battleData.Player1Party and battleData.Player1Party[1]
+        
+        if wildDoodle and myDoodle then
+            Stats.Encounters = Stats.Encounters + 1
+            
+            -- Update display
+            local name = wildDoodle.Name or wildDoodle.RealName or "Unknown"
+            local stars = wildDoodle.Star or 0
+            local isMisprint = wildDoodle.Shiny or (wildDoodle.Color and wildDoodle.Color ~= "Normal")
+            
+            print(string.format("Encounter #%d: %s (%d⭐) %s", 
+                Stats.Encounters, 
+                name, 
+                stars,
+                isMisprint and "[MISPRINT]" or ""
+            ))
+            
+            -- Check if it matches filters
+            local isMatch, reason = CheckMatch(wildDoodle)
+            
+            if isMatch then
+                print("✅ MATCH FOUND:", reason)
+                Stats.Found = Stats.Found + 1
+                
+                if not Settings.Chain then
+                    Enabled = false
+                    print("🎉 Target found! Stopping autofarm.")
+                else
+                    Stats.Chain = Stats.Chain + 1
+                    print("Chain:", Stats.Chain)
+                end
+                
+                -- Don't run, let player catch it
+                return
+            else
+                print("❌ No match:", reason)
+                
+                if Settings.Chain then
+                    -- Check if same species (for chaining)
+                    local isSameSpecies = false
+                    if Settings.Doodle.Name ~= "None" then
+                        local name = (wildDoodle.Name or wildDoodle.RealName or ""):lower()
+                        local targetName = Settings.Doodle.Name:lower()
+                        isSameSpecies = name:find(targetName, 1, true) ~= nil
+                    end
+                    
+                    if isSameSpecies then
+                        -- Same species but doesn't meet requirements - kill it
+                        task.wait(1)
+                        PerformBattleAction(myDoodle, wildDoodle, false)
+                    else
+                        -- Different species - run away
+                        task.wait(1)
+                        PerformBattleAction(myDoodle, wildDoodle, true)
+                    end
+                elseif Settings.AutoRun then
+                    -- Just run from everything
+                    task.wait(1)
+                    PerformBattleAction(myDoodle, wildDoodle, true)
+                end
+            end
+        end
+    end)
+end
 
 -- Custom GUI Library
 local Library = {}
@@ -245,17 +397,7 @@ function Library:CreateWindow(title)
     local window = {}
     window.Elements = {}
     
-    -- Wait for PlayerGui
-    local PlayerGui = Player:FindFirstChild("PlayerGui")
-    if not PlayerGui then
-        local success, result = pcall(function()
-            return Player:WaitForChild("PlayerGui", 10)
-        end)
-        if success then
-            PlayerGui = result
-        end
-    end
-    
+    local PlayerGui = Player:WaitForChild("PlayerGui", 10)
     if not PlayerGui then
         warn("❌ PlayerGui not found!")
         return nil
@@ -269,8 +411,8 @@ function Library:CreateWindow(title)
     
     local MainFrame = Instance.new("Frame")
     MainFrame.Name = "MainFrame"
-    MainFrame.Size = UDim2.new(0, 400, 0, 600)
-    MainFrame.Position = UDim2.new(0.5, -200, 0.5, -300)
+    MainFrame.Size = UDim2.new(0, 400, 0, 650)
+    MainFrame.Position = UDim2.new(0.5, -200, 0.5, -325)
     MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
     MainFrame.BorderSizePixel = 0
     MainFrame.Parent = ScreenGui
@@ -679,7 +821,7 @@ end
 
 -- Create GUI
 print("Creating GUI...")
-local Window = Library:CreateWindow("Doodle Autofarm v2.0")
+local Window = Library:CreateWindow("Doodle Autofarm v3.0")
 
 if not Window then
     warn("❌ Failed to create GUI window!")
@@ -693,20 +835,24 @@ local GuiObjects = {}
 GuiObjects.EnabledToggle = Window:Toggle("Start Farming", {}, function(value)
     Enabled = value
     print("Farming", value and "enabled" or "disabled")
+    if value then
+        Stats.Encounters = 0
+        Stats.Chain = 0
+    end
 end)
 
-Window:Section("Autofarm Options")
+Window:Section("Battle Options")
 
-GuiObjects.ChainToggle = Window:Toggle("Build Chain", {}, function(value)
+GuiObjects.ChainToggle = Window:Toggle("Chain Mode (Kill/Run)", {}, function(value)
     Settings.Chain = value
 end)
 
-GuiObjects.AutoHealToggle = Window:Toggle("Auto Heal", {}, function(value)
-    Settings.AutoHeal = value
+GuiObjects.AutoRunToggle = Window:Toggle("Auto Run (All Battles)", {}, function(value)
+    Settings.AutoRun = value
 end)
 
-GuiObjects.StationaryToggle = Window:Toggle("Current Spot Only", {}, function(value)
-    Settings.Stationary = value
+GuiObjects.MoveSlider = Window:Slider("Move Slot to Use", {min=1, max=4}, function(value)
+    Settings.SelectedMoveSlot = value
 end)
 
 Window:Section("Catch Filters")
@@ -724,6 +870,61 @@ GuiObjects.DoodleSelection = Window:SearchBox("Doodle to Catch", {list=DoodleNam
     end
 end)
 
+GuiObjects.MisprintToggle = Window:Toggle("Only Misprint", {}, function(value)
+    Settings.Misprint = value
+end)
+
+Window:Section("Stats")
+local StatsLabel = Instance.new("TextLabel")
+StatsLabel.Size = UDim2.new(1, 0, 0, 60)
+StatsLabel.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+StatsLabel.BorderSizePixel = 0
+StatsLabel.Text = "Encounters: 0\nChain: 0\nFound: 0"
+StatsLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+StatsLabel.TextSize = 14
+StatsLabel.Font = Enum.Font.GothamBold
+StatsLabel.Parent = Window.ContentFrame
+
+local StatsCorner = Instance.new("UICorner")
+StatsCorner.CornerRadius = UDim.new(0, 6)
+StatsCorner.Parent = StatsLabel
+
+-- Update stats display
+task.spawn(function()
+    while task.wait(1) do
+        StatsLabel.Text = string.format("Encounters: %d\nChain: %d\nFound: %d", 
+            Stats.Encounters, Stats.Chain, Stats.Found)
+    end
+end)
+
+-- Encounter Loop (Using correct remote from working script)
+task.spawn(function()
+    print("Encounter loop started!")
+    while task.wait(1) do
+        if Enabled then
+            local char = Player.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                -- Detect current zone
+                local currentZone = nil
+                for _, obj in ipairs(Workspace:GetChildren()) do
+                    if obj.Name:match("^%d%d%d_") or zoneEncounters[obj.Name] then
+                        currentZone = obj.Name
+                        break
+                    end
+                end
+                
+                -- Trigger encounter using DudeWhyld remote
+                if currentZone and zoneEncounters[currentZone] and DudeWhyld then
+                    pcall(function()
+                        DudeWhyld:FireServer(currentZone, zoneEncounters[currentZone])
+                    end)
+                end
+            end
+            task.wait(Settings.EncounterDelay)
+        end
+    end
+end)
+
 -- Disable idle kick
 pcall(function()
     for i,v in pairs(getconnections(Player.Idled)) do
@@ -733,3 +934,10 @@ end)
 
 print("✅ Doodle Autofarm Loaded Successfully!")
 print("GUI should be visible on your screen")
+print("")
+print("Instructions:")
+print("1. Select the Doodle you want to hunt")
+print("2. Set minimum stars and other filters")
+print("3. Enable 'Chain Mode' to auto-kill/run encounters")
+print("4. Click 'Start Farming' to begin")
+print("5. Walk around in grass areas to trigger encounters")
