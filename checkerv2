@@ -46,43 +46,6 @@ if not BattleAction then
 end
 print("✓ BattleAction found")
 
--- Hook into DudeWhyld to detect zones (safer version)
-pcall(function()
-    local originalNamecall
-    originalNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-        local args = {...}
-        local method = getnamecallmethod()
-        
-        if method == "FireServer" and self.Name == "DudeWhyld" then
-            local zoneName = args[1]
-            local encounterType = args[2]
-            
-            if zoneName and encounterType and type(zoneName) == "string" and type(encounterType) == "string" then
-                pcall(function()
-                    DetectedZones.CurrentZone = zoneName
-                    DetectedZones.CurrentEncounterType = encounterType
-                    DetectedZones.IsKnownZone = zoneEncounters[zoneName] ~= nil
-                    
-                    if DetectedZones.LearningMode then
-                        print("🔍 DETECTED ZONE:", zoneName)
-                        print("🔍 ENCOUNTER TYPE:", encounterType)
-                        
-                        if not zoneEncounters[zoneName] then
-                            print("⚠️ NEW ZONE DETECTED! Not in database.")
-                        else
-                            print("✓ Zone already known")
-                        end
-                    end
-                end)
-            end
-        end
-        
-        return originalNamecall(self, ...)
-    end)
-end)
-
-print("✓ Zone detection hook installed")
-
 -- Get Client
 local Client = Player:WaitForChild("Client", 30)
 if not Client then
@@ -170,13 +133,47 @@ local zoneEncounters = {
     ["031_CandyFactory"] = "WildGrass"
 }
 
--- Zone Detection
+-- Zone Detection (simplified - no hooks needed)
 local DetectedZones = {
-    CurrentZone = "Unknown",
-    CurrentEncounterType = "Unknown",
+    CurrentZone = "                        print("⚠️ No zone detected")
+                        DetectedZones.CurrentZone = "Unknown"
+                    end
+                    lastZone = zone
+                end
+                
+                if zone and zoneEncounters[zone] then
+                    pcall(function()
+                        DudeWhyld:FireServer(zone, zoneEncounters[zone])
+                    end)
+                    task.wait(Settings.EncounterDelay)
+                else
+                    task.wait(2)
+                end
+            end
+        end
+    end
+end)
+
+-- Disable idle kick (optional, may not work on all executors)
+pcall(function()
+    if getconnections then
+        for _, connection in pairs(getconnections(Player.Idled)) do
+            pcall(function()
+                connection:Disable()
+            end)
+        end
+    end
+end)
+
+print("✅ Auto Farm Loaded!")
+print("Stand in grass and press Start Farming!")
+print("Script will only stop for Doodles that match ALL your filters!")",
+    CurrentEncounterType = "WildGrass",
     IsKnownZone = false,
     LearningMode = false
 }
+
+print("✓ Zone detection ready")
 
 -- Settings
 local Settings = {
@@ -202,15 +199,14 @@ local Stats = {
 
 -- Helper Functions
 local function GetBattleData()
-    local battleData = nil
-    
-    pcall(function()
-        if ClientModule.Battle and ClientModule.Battle.CurrentBattle then
-            battleData = ClientModule.Battle.CurrentBattle
+    local success, battleData = pcall(function()
+        if ClientModule and ClientModule.Battle and ClientModule.Battle.CurrentBattle then
+            return ClientModule.Battle.CurrentBattle
         end
+        return nil
     end)
     
-    return battleData
+    return success and battleData or nil
 end
 
 local function GetOutDoodle()
@@ -513,34 +509,40 @@ task.spawn(function()
                             local moveName = myDoodle.Moves[Settings.SelectedMoveSlot].Name
                             print("Using move:", moveName)
                             
-                            ClientModule.Network:post("BattleAction", {
-                                [1] = {
-                                    ["Target"] = wildDoodle.ID,
-                                    ["ActionType"] = "Attack",
-                                    ["Action"] = moveName,
-                                    ["User"] = myDoodle.ID,
-                                }
-                            })
+                            pcall(function()
+                                BattleAction:FireServer({
+                                    [1] = {
+                                        ["Target"] = wildDoodle.ID,
+                                        ["ActionType"] = "Attack",
+                                        ["Action"] = moveName,
+                                        ["User"] = myDoodle.ID,
+                                    }
+                                })
+                            end)
                         end
                     else
                         print("Different species - running!")
-                        ClientModule.Network:post("BattleAction", {
+                        pcall(function()
+                            BattleAction:FireServer({
+                                [1] = {
+                                    ["Target"] = "RunAway",
+                                    ["ActionType"] = "Run",
+                                    ["User"] = myDoodle.ID,
+                                }
+                            })
+                        end)
+                    end
+                else
+                    print("Running from battle")
+                    pcall(function()
+                        BattleAction:FireServer({
                             [1] = {
                                 ["Target"] = "RunAway",
                                 ["ActionType"] = "Run",
                                 ["User"] = myDoodle.ID,
                             }
                         })
-                    end
-                else
-                    print("Running from battle")
-                    ClientModule.Network:post("BattleAction", {
-                        [1] = {
-                            ["Target"] = "RunAway",
-                            ["ActionType"] = "Run",
-                            ["User"] = myDoodle.ID,
-                        }
-                    })
+                    end)
                 end
                 
                 EndTurn()
@@ -1274,18 +1276,18 @@ learnZoneBtn.MouseButton1Click:Connect(function()
     
     if DetectedZones.LearningMode then
         learnZoneBtn.BackgroundColor3 = Color3.fromRGB(200, 100, 50)
-        learnZoneBtn.Text = "🔴 Learning Mode ON - Encounter!"
+        learnZoneBtn.Text = "🔴 Stop Learning - Walk to Grass!"
         print("🔍 LEARNING MODE ENABLED")
-        print("Walk into grass to trigger an encounter!")
-        print("Zone info will be detected and displayed.")
+        print("Walk around different areas to detect zones!")
+        print("Zone info will be shown below.")
     else
         learnZoneBtn.BackgroundColor3 = Color3.fromRGB(100, 150, 200)
         learnZoneBtn.Text = "🔍 Learn New Zone (Encounter Once)"
         print("✓ Learning mode disabled")
         
-        -- If we detected a new zone, offer to add it
+        -- If we detected a new unknown zone, offer to add it
         pcall(function()
-            if DetectedZones.CurrentZone and DetectedZones.CurrentZone ~= "Unknown" and not DetectedZones.IsKnownZone then
+            if DetectedZones.CurrentZone and DetectedZones.CurrentZone ~= "Unknown" and not zoneEncounters[DetectedZones.CurrentZone] then
                 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 print("🆕 NEW ZONE DETECTED!")
                 print("Zone Name:", DetectedZones.CurrentZone)
@@ -1298,6 +1300,8 @@ learnZoneBtn.MouseButton1Click:Connect(function()
                 
                 print("✅ Zone added successfully!")
                 print("You can now farm in this zone!")
+            elseif DetectedZones.IsKnownZone then
+                print("✓ Zone already in database!")
             end
         end)
     end
@@ -1405,56 +1409,63 @@ task.spawn(function()
         if Settings.Enabled then
             local char = Player.Character
             if char and char:FindFirstChild("HumanoidRootPart") then
+                -- Try to detect current zone from workspace
                 local zone = nil
+                local rootPart = char.HumanoidRootPart
                 
+                -- Method 1: Check if player is inside a zone folder
                 for _, obj in ipairs(Workspace:GetChildren()) do
-                    if obj.Name:match("^%d%d%d_") or zoneEncounters[obj.Name] then
-                        zone = obj.Name
-                        break
+                    if obj:IsA("Folder") or obj:IsA("Model") then
+                        if obj.Name:match("^%d%d%d_") or zoneEncounters[obj.Name] then
+                            -- Check if player is within this zone's bounds
+                            local regionPart = obj:FindFirstChild("Region") or obj:FindFirstChildWhichIsA("BasePart", true)
+                            if regionPart then
+                                local distance = (rootPart.Position - regionPart.Position).Magnitude
+                                if distance < 500 then -- Within zone range
+                                    zone = obj.Name
+                                    break
+                                end
+                            else
+                                -- No specific region part, assume we're in it if it's the closest zone
+                                zone = obj.Name
+                                break
+                            end
+                        end
                     end
+                end
+                
+                -- Method 2: Try to get zone from PlayerData
+                if not zone then
+                    pcall(function()
+                        local PlayerData = Player:FindFirstChild("PlayerData")
+                        if PlayerData then
+                            local CurrentZone = PlayerData:FindFirstChild("CurrentZone")
+                            if CurrentZone and CurrentZone.Value then
+                                zone = CurrentZone.Value
+                            end
+                        end
+                    end)
                 end
                 
                 if zone ~= lastZone then
                     if zone then
                         print("📍 Zone detected:", zone)
+                        DetectedZones.CurrentZone = zone
+                        DetectedZones.IsKnownZone = zoneEncounters[zone] ~= nil
+                        DetectedZones.CurrentEncounterType = zoneEncounters[zone] or "WildGrass"
+                        
                         if zoneEncounters[zone] then
                             print("✓ Zone is valid for encounters")
                         else
                             if zone:match("^%d%d%d_") then
                                 print("✓ Auto-adding zone to encounter list")
                                 zoneEncounters[zone] = "WildGrass"
+                                DetectedZones.IsKnownZone = true
+                                DetectedZones.CurrentEncounterType = "WildGrass"
                             else
-                                warn("⚠️ Zone not in encounter list")
+                                warn("⚠️ Zone not in encounter list - use Learning Mode")
                             end
                         end
                     else
                         print("⚠️ No zone detected")
-                    end
-                    lastZone = zone
-                end
-                
-                if zone and zoneEncounters[zone] then
-                    pcall(function()
-                        game:GetService("ReplicatedStorage").Remotes.DudeWhyld:FireServer(zone, zoneEncounters[zone])
-                    end)
-                    task.wait(Settings.EncounterDelay)
-                else
-                    task.wait(2)
-                end
-            end
-        end
-    end
-end)
-
--- Disable idle kick
-pcall(function()
-    if getconnections then
-        for _, connection in pairs(getconnections(Player.Idled)) do
-            connection:Disable()
-        end
-    end
-end)
-
-print("✅ Auto Farm Loaded!")
-print("Stand in grass and press Start Farming!")
-print("Script will only stop for Doodles that match ALL your filters!")
+                        DetectedZones.CurrentZone = "
