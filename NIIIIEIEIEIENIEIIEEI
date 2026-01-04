@@ -1,15 +1,30 @@
--- Doodle World Complete Auto Farm - FULLY FIXED
--- Compatible with all executors
+-- Doodle World Complete Auto Farm - BULLETPROOF VERSION
+-- Safety checks
+if not game or not game.GetService then return end
 
--- Use standard wait function
-local wait = wait or task.wait
+-- Robust Environment Setup
+local env = nil
+local success, result = pcall(function()
+    return getgenv and getgenv()
+end)
+if success and result then
+    env = result
+else
+    env = _G or {}
+end
+
+-- Safe wait function
+local wait = wait or function(t) 
+    local start = tick()
+    repeat until tick() - start >= (t or 0.03)
+end
 
 -- Wait for game to fully load
 pcall(function()
     repeat wait(0.1) until game and game.IsLoaded and game:IsLoaded()
 end)
 
-wait(1) -- Extra safety delay
+wait(1)
 
 -- Verify game ID
 if game.GameId == 0 then
@@ -35,7 +50,7 @@ end
 
 print("Loading Doodle World Auto Farm...")
 
--- Wait for required components with error handling
+-- Wait for required components
 local Remotes, Client, ClientModule
 local BattleActionEvent, StartBattleEvent, DudeWhyld
 
@@ -56,21 +71,16 @@ end)
 
 if not loadSuccess or not Remotes or not Client or not ClientModule then
     warn("Failed to load required game components!")
-    warn("Remotes:", Remotes ~= nil)
-    warn("Client:", Client ~= nil)
-    warn("ClientModule:", ClientModule ~= nil)
     warn("Make sure you're in the game world, not in menus!")
     return
 end
 
 -- Initialize Global Settings
-getgenv = getgenv or function() return _G end
-
-if not getgenv().AutoFarm then
-    getgenv().AutoFarm = {}
+if not env.AutoFarm then
+    env.AutoFarm = {}
 end
 
-local AutoFarm = getgenv().AutoFarm
+local AutoFarm = env.AutoFarm
 
 AutoFarm.Active = AutoFarm.Active or false
 AutoFarm.ChainMode = AutoFarm.ChainMode or false
@@ -89,14 +99,6 @@ AutoFarm.Stats = AutoFarm.Stats or {
     Encounters = 0,
     Chain = 0,
     Found = 0
-}
-
--- Zone Map
-local zoneEncounters = {
-    ["025_Sweetsville"] = "WildGrass",
-    ["033_Academy"] = "WildGrass",
-    ["029_SubwayStation"] = "WildGrass",
-    ["TheCarnival"] = "WildGrass",
 }
 
 -- Helper Functions
@@ -220,52 +222,6 @@ local function EndTurn()
     end)
 end
 
-local function SwitchDoodle(YourDoodle)
-    pcall(function()
-        local battleData = GetBattleData()
-        if not battleData then return end
-        
-        local PlayerGui = Player:FindFirstChild("PlayerGui")
-        if not PlayerGui then return end
-        
-        local MainGui = PlayerGui:WaitForChild("MainGui", 5)
-        if not MainGui then return end
-        
-        local PartyGui = MainGui:WaitForChild("PartyUI", 5)
-        if not PartyGui then return end
-        
-        local YourParty = battleData["Player1Party"]
-        local SelectedDoodle = nil
-        
-        for i,v in pairs(YourParty) do
-            if not SelectedDoodle and v.ID and v.ID ~= YourDoodle.ID then
-                if PartyGui:FindFirstChild("Party"..tostring(i)) then
-                    local PartyMemberHolder = PartyGui:FindFirstChild("Party"..tostring(i))
-                    if PartyMemberHolder:FindFirstChild("Health") and PartyMemberHolder.Health:FindFirstChild("HealthNumber") then
-                        local CurrentHealth = string.split(PartyMemberHolder.Health.HealthNumber.Text,"/")
-                        CurrentHealth = string.gsub(CurrentHealth[1]," ","")
-                        CurrentHealth = tonumber(CurrentHealth)
-                        if CurrentHealth ~= 0 then
-                            SelectedDoodle = v
-                            break
-                        end
-                    end
-                end
-            end
-        end
-        
-        if SelectedDoodle and ClientModule and ClientModule.Network then
-            ClientModule.Network:post("ForceSwitch",{
-                ["Target"] = SelectedDoodle.ID,
-                ["ActionType"] = "ForceSwitch",
-                ["User"] = YourDoodle.ID,
-            })
-            EndTurn()
-            repeat wait(0.1) until PartyGui.Visible == false
-        end
-    end)
-end
-
 local function CheckMatch(data)
     if not data then return false, "No Data" end
     
@@ -302,36 +258,6 @@ local function CheckMatch(data)
     return true, "Match Found!"
 end
 
-local function GetBestMove(myDoodle, enemyDoodle)
-    local bestMove = nil
-    local highestMultiplier = -100
-    
-    if myDoodle and myDoodle.Moves and ClientModule and ClientModule.ClientDatabase and ClientModule.Typings then
-        pcall(function()
-            for _, move in pairs(myDoodle.Moves) do
-                local moveName = type(move) == "table" and move.Name or move
-                local moveData = ClientModule.ClientDatabase:GetMoveData(moveName)
-                
-                if moveData and moveData.Power then
-                    local multiplier = ClientModule.Typings:GetEffectiveness(myDoodle, enemyDoodle, moveData.Type)
-                    if multiplier > highestMultiplier then
-                        highestMultiplier = multiplier
-                        bestMove = moveName
-                    end
-                end
-            end
-        end)
-    end
-    
-    -- Fallback to selected slot
-    if not bestMove and myDoodle and myDoodle.Moves and myDoodle.Moves[AutoFarm.SelectedMoveSlot] then
-        local move = myDoodle.Moves[AutoFarm.SelectedMoveSlot]
-        bestMove = type(move) == "table" and move.Name or move
-    end
-    
-    return bestMove
-end
-
 -- Create GUI
 print("Creating GUI...")
 
@@ -340,23 +266,18 @@ ScreenGui.Name = "AutoFarmGui"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
--- Protect GUI
-local function protectGui()
-    local success = pcall(function()
-        if syn and syn.protect_gui then
-            syn.protect_gui(ScreenGui)
-        elseif gethui then
-            ScreenGui.Parent = gethui()
-            return true
-        end
-    end)
-    
-    if not success or not ScreenGui.Parent then
-        ScreenGui.Parent = Player:WaitForChild("PlayerGui")
+pcall(function()
+    if syn and syn.protect_gui then
+        syn.protect_gui(ScreenGui)
+    elseif gethui then
+        ScreenGui.Parent = gethui()
+        return
     end
-end
+end)
 
-protectGui()
+if not ScreenGui.Parent then
+    ScreenGui.Parent = Player:WaitForChild("PlayerGui")
+end
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
@@ -368,9 +289,7 @@ MainFrame.Active = true
 MainFrame.Draggable = true
 MainFrame.Parent = ScreenGui
 
-local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(0, 10)
-UICorner.Parent = MainFrame
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 10)
 
 -- Title
 local Title = Instance.new("TextLabel")
@@ -667,4 +586,66 @@ ToggleBtn.MouseButton1Click:Connect(function()
         AutoFarm.Stats.Found = 0
     else
         ToggleBtn.Text = "▶️ Start Auto Farm"
-        ToggleBtn.BackgroundColor3 
+        ToggleBtn.BackgroundColor3 = Color3.fromRGB(50, 200, 100)
+    end
+end)
+
+-- Battle Event Handler
+if StartBattleEvent then
+    StartBattleEvent.OnClientEvent:Connect(function(battleData)
+        if not AutoFarm.Active then return end
+        
+        wait(0.3)
+        
+        local wildDoodle = battleData.Player2Party and battleData.Player2Party[1]
+        local myDoodle = battleData.Player1Party and battleData.Player1Party[1]
+        
+        if not wildDoodle or not myDoodle then return end
+        
+        AutoFarm.Stats.Encounters = AutoFarm.Stats.Encounters + 1
+        UpdateDisplay(wildDoodle)
+        
+        if AutoFarm.AutoRun then
+            print("Auto Run - Running away...")
+            wait(0.5)
+            pcall(function()
+                ClientModule.Network:post("BattleAction",{
+                    [1] = {
+                        ["Target"] = "RunAway",
+                        ["ActionType"] = "Run",
+                        ["User"] = myDoodle.ID,
+                    }
+                })
+            end)
+            return
+        end
+        
+        if AutoFarm.ChainMode then
+            local isMatch, reason = CheckMatch(wildDoodle)
+            
+            if isMatch then
+                AutoFarm.Active = false
+                AutoFarm.Stats.Found = AutoFarm.Stats.Found + 1
+                ToggleBtn.Text = "🎉 Match Found!"
+                ToggleBtn.BackgroundColor3 = Color3.fromRGB(50, 255, 100)
+                print("✨ FOUND MATCHING DOODLE!")
+                return
+            end
+            
+            print("Chain Mode: " .. reason .. " - Running...")
+            wait(0.5)
+            pcall(function()
+                ClientModule.Network:post("BattleAction",{
+                    [1] = {
+                        ["Target"] = "RunAway",
+                        ["ActionType"] = "Run",
+                        ["User"] = myDoodle.ID,
+                    }
+                })
+            end)
+        end
+    end)
+end
+
+print("✅ Doodle World Auto Farm loaded successfully!")
+print("Configure your filters and click Start!")
