@@ -1,27 +1,25 @@
--- Doodle World Complete Auto Farm - FIXED
--- Combines Auto Battle + Chain Hunting + Filters
+-- Doodle World Complete Auto Farm - FULLY FIXED
+-- Compatible with all executors
+
+-- Use standard wait function
+local wait = wait or task.wait
 
 -- Wait for game to fully load
-local success, err = pcall(function()
-    repeat task.wait(0.1) until game:IsLoaded()
+pcall(function()
+    repeat wait(0.1) until game and game.IsLoaded and game:IsLoaded()
 end)
 
-if not success then
-    warn("Failed to wait for game load:", err)
-    task.wait(3)
-end
+wait(1) -- Extra safety delay
 
 -- Verify game ID
-task.spawn(function()
-    if game.GameId == 0 then
-        game:GetPropertyChangedSignal("GameId"):Wait()
-    end
-    
-    if game.GameId ~= 1775919872 then
-        warn("This script is only for Doodle World!")
-        return
-    end
-end)
+if game.GameId == 0 then
+    repeat wait(0.5) until game.GameId ~= 0
+end
+
+if game.GameId ~= 1775919872 then
+    warn("This script is only for Doodle World!")
+    return
+end
 
 -- Service declarations
 local Players = game:GetService("Players")
@@ -30,8 +28,8 @@ local RunService = game:GetService("RunService")
 
 -- Wait for LocalPlayer
 local Player = Players.LocalPlayer
-if not Player then
-    Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
+while not Player do
+    wait(0.1)
     Player = Players.LocalPlayer
 end
 
@@ -41,7 +39,7 @@ print("Loading Doodle World Auto Farm...")
 local Remotes, Client, ClientModule
 local BattleActionEvent, StartBattleEvent, DudeWhyld
 
-pcall(function()
+local loadSuccess = pcall(function()
     Remotes = Player:WaitForChild("Remotes", 30)
     if Remotes then
         BattleActionEvent = Remotes:WaitForChild("BattleAction", 30)
@@ -56,38 +54,41 @@ pcall(function()
     end
 end)
 
-if not Remotes or not Client or not ClientModule then
+if not loadSuccess or not Remotes or not Client or not ClientModule then
     warn("Failed to load required game components!")
     warn("Remotes:", Remotes ~= nil)
     warn("Client:", Client ~= nil)
     warn("ClientModule:", ClientModule ~= nil)
+    warn("Make sure you're in the game world, not in menus!")
     return
 end
 
--- Global Settings
-if not _G.AutoFarm then
-    _G.AutoFarm = {}
+-- Initialize Global Settings
+getgenv = getgenv or function() return _G end
+
+if not getgenv().AutoFarm then
+    getgenv().AutoFarm = {}
 end
 
-_G.AutoFarm = {
-    Active = _G.AutoFarm.Active or false,
-    ChainMode = _G.AutoFarm.ChainMode or false,
-    AutoRun = _G.AutoFarm.AutoRun or false,
-    SelectedMoveSlot = _G.AutoFarm.SelectedMoveSlot or 1,
-    EncounterDelay = _G.AutoFarm.EncounterDelay or 2,
-    CurrentZone = _G.AutoFarm.CurrentZone or nil,
-    Filters = {
-        Species = "",
-        MinStars = 0,
-        HiddenTrait = false,
-        Misprint = false,
-        Skin = ""
-    },
-    Stats = {
-        Encounters = 0,
-        Chain = 0,
-        Found = 0
-    }
+local AutoFarm = getgenv().AutoFarm
+
+AutoFarm.Active = AutoFarm.Active or false
+AutoFarm.ChainMode = AutoFarm.ChainMode or false
+AutoFarm.AutoRun = AutoFarm.AutoRun or false
+AutoFarm.SelectedMoveSlot = AutoFarm.SelectedMoveSlot or 1
+AutoFarm.EncounterDelay = AutoFarm.EncounterDelay or 2
+AutoFarm.CurrentZone = AutoFarm.CurrentZone or nil
+AutoFarm.Filters = AutoFarm.Filters or {
+    Species = "",
+    MinStars = 0,
+    HiddenTrait = false,
+    Misprint = false,
+    Skin = ""
+}
+AutoFarm.Stats = AutoFarm.Stats or {
+    Encounters = 0,
+    Chain = 0,
+    Found = 0
 }
 
 -- Zone Map
@@ -208,6 +209,7 @@ end
 local function EndTurn()
     pcall(function()
         if not ClientModule or not ClientModule.Network then return end
+        if not getupvalues then return end
         local UpValues = getupvalues(ClientModule.Network.BindEvent)
         for i,v in pairs(UpValues) do
             if typeof(v) == "table" and v["ForceEnd"] ~= nil then
@@ -259,7 +261,7 @@ local function SwitchDoodle(YourDoodle)
                 ["User"] = YourDoodle.ID,
             })
             EndTurn()
-            repeat task.wait(0.1) until PartyGui.Visible == false
+            repeat wait(0.1) until PartyGui.Visible == false
         end
     end)
 end
@@ -267,32 +269,32 @@ end
 local function CheckMatch(data)
     if not data then return false, "No Data" end
     
-    if _G.AutoFarm.Filters.Species ~= "" then
+    if AutoFarm.Filters.Species ~= "" then
         local name = (data.Name or data.RealName or ""):lower()
-        if not name:find(_G.AutoFarm.Filters.Species:lower()) then
+        if not name:find(AutoFarm.Filters.Species:lower()) then
             return false, "Species Mismatch"
         end
     end
     
-    if (data.Star or 0) < _G.AutoFarm.Filters.MinStars then
+    if (data.Star or 0) < AutoFarm.Filters.MinStars then
         return false, "Low Stars"
     end
     
-    if _G.AutoFarm.Filters.HiddenTrait then
+    if AutoFarm.Filters.HiddenTrait then
         if not data.HiddenTrait then
             return false, "No Hidden Trait"
         end
     end
     
-    if _G.AutoFarm.Filters.Misprint then
+    if AutoFarm.Filters.Misprint then
         if not data.Shiny then
             return false, "No Misprint"
         end
     end
     
-    if _G.AutoFarm.Filters.Skin ~= "" then
+    if AutoFarm.Filters.Skin ~= "" then
         local skinName = tostring(data.Skin or "")
-        if skinName == "0" or skinName == "" or not skinName:lower():find(_G.AutoFarm.Filters.Skin:lower()) then
+        if skinName == "0" or skinName == "" or not skinName:lower():find(AutoFarm.Filters.Skin:lower()) then
             return false, "Wrong Skin"
         end
     end
@@ -322,8 +324,8 @@ local function GetBestMove(myDoodle, enemyDoodle)
     end
     
     -- Fallback to selected slot
-    if not bestMove and myDoodle and myDoodle.Moves and myDoodle.Moves[_G.AutoFarm.SelectedMoveSlot] then
-        local move = myDoodle.Moves[_G.AutoFarm.SelectedMoveSlot]
+    if not bestMove and myDoodle and myDoodle.Moves and myDoodle.Moves[AutoFarm.SelectedMoveSlot] then
+        local move = myDoodle.Moves[AutoFarm.SelectedMoveSlot]
         bestMove = type(move) == "table" and move.Name or move
     end
     
@@ -338,20 +340,23 @@ ScreenGui.Name = "AutoFarmGui"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
--- Protect GUI from being destroyed
-pcall(function()
-    if syn and syn.protect_gui then
-        syn.protect_gui(ScreenGui)
-    elseif gethui then
-        ScreenGui.Parent = gethui()
-    else
+-- Protect GUI
+local function protectGui()
+    local success = pcall(function()
+        if syn and syn.protect_gui then
+            syn.protect_gui(ScreenGui)
+        elseif gethui then
+            ScreenGui.Parent = gethui()
+            return true
+        end
+    end)
+    
+    if not success or not ScreenGui.Parent then
         ScreenGui.Parent = Player:WaitForChild("PlayerGui")
     end
-end)
-
-if not ScreenGui.Parent then
-    ScreenGui.Parent = Player:WaitForChild("PlayerGui")
 end
+
+protectGui()
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
@@ -391,7 +396,7 @@ CloseBtn.Parent = MainFrame
 Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 6)
 
 CloseBtn.MouseButton1Click:Connect(function()
-    _G.AutoFarm.Active = false
+    AutoFarm.Active = false
     ScreenGui:Destroy()
 end)
 
@@ -447,8 +452,8 @@ local function UpdateDisplay(data)
         InfoLabels.Misprint.Text = "Misprint: " .. misprint
         
         InfoLabels.Skin.Text = "Skin: " .. tostring(data.Skin or "None")
-        InfoLabels.Encounters.Text = "Encounters: " .. _G.AutoFarm.Stats.Encounters
-        InfoLabels.Chain.Text = "Chain: " .. _G.AutoFarm.Stats.Chain
+        InfoLabels.Encounters.Text = "Encounters: " .. AutoFarm.Stats.Encounters
+        InfoLabels.Chain.Text = "Chain: " .. AutoFarm.Stats.Chain
     end)
 end
 
@@ -472,9 +477,9 @@ ChainModeBtn.Parent = ControlsFrame
 Instance.new("UICorner", ChainModeBtn).CornerRadius = UDim.new(0, 6)
 
 ChainModeBtn.MouseButton1Click:Connect(function()
-    _G.AutoFarm.ChainMode = not _G.AutoFarm.ChainMode
-    if _G.AutoFarm.ChainMode then
-        _G.AutoFarm.AutoRun = false
+    AutoFarm.ChainMode = not AutoFarm.ChainMode
+    if AutoFarm.ChainMode then
+        AutoFarm.AutoRun = false
         ChainModeBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 255)
         ChainModeBtn.Text = "Chain Mode: ON"
         ChainModeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -498,9 +503,9 @@ AutoRunBtn.Parent = ControlsFrame
 Instance.new("UICorner", AutoRunBtn).CornerRadius = UDim.new(0, 6)
 
 AutoRunBtn.MouseButton1Click:Connect(function()
-    _G.AutoFarm.AutoRun = not _G.AutoFarm.AutoRun
-    if _G.AutoFarm.AutoRun then
-        _G.AutoFarm.ChainMode = false
+    AutoFarm.AutoRun = not AutoFarm.AutoRun
+    if AutoFarm.AutoRun then
+        AutoFarm.ChainMode = false
         AutoRunBtn.BackgroundColor3 = Color3.fromRGB(255, 150, 50)
         AutoRunBtn.Text = "Auto Run: ON"
         AutoRunBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -527,7 +532,7 @@ SpeciesInput.TextSize = 12
 SpeciesInput.Parent = ControlsFrame
 Instance.new("UICorner", SpeciesInput).CornerRadius = UDim.new(0, 6)
 SpeciesInput:GetPropertyChangedSignal("Text"):Connect(function()
-    _G.AutoFarm.Filters.Species = SpeciesInput.Text
+    AutoFarm.Filters.Species = SpeciesInput.Text
 end)
 
 -- Min Stars
@@ -543,7 +548,7 @@ StarsInput.TextSize = 12
 StarsInput.Parent = ControlsFrame
 Instance.new("UICorner", StarsInput).CornerRadius = UDim.new(0, 6)
 StarsInput:GetPropertyChangedSignal("Text"):Connect(function()
-    _G.AutoFarm.Filters.MinStars = tonumber(StarsInput.Text) or 0
+    AutoFarm.Filters.MinStars = tonumber(StarsInput.Text) or 0
 end)
 
 -- Hidden Trait Toggle
@@ -558,10 +563,10 @@ HTBtn.TextSize = 12
 HTBtn.Parent = ControlsFrame
 Instance.new("UICorner", HTBtn).CornerRadius = UDim.new(0, 6)
 HTBtn.MouseButton1Click:Connect(function()
-    _G.AutoFarm.Filters.HiddenTrait = not _G.AutoFarm.Filters.HiddenTrait
-    HTBtn.Text = _G.AutoFarm.Filters.HiddenTrait and "HT: ON" or "HT: OFF"
-    HTBtn.BackgroundColor3 = _G.AutoFarm.Filters.HiddenTrait and Color3.fromRGB(50, 150, 255) or Color3.fromRGB(60, 60, 65)
-    HTBtn.TextColor3 = _G.AutoFarm.Filters.HiddenTrait and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(200, 200, 200)
+    AutoFarm.Filters.HiddenTrait = not AutoFarm.Filters.HiddenTrait
+    HTBtn.Text = AutoFarm.Filters.HiddenTrait and "HT: ON" or "HT: OFF"
+    HTBtn.BackgroundColor3 = AutoFarm.Filters.HiddenTrait and Color3.fromRGB(50, 150, 255) or Color3.fromRGB(60, 60, 65)
+    HTBtn.TextColor3 = AutoFarm.Filters.HiddenTrait and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(200, 200, 200)
 end)
 
 -- Misprint Toggle
@@ -576,10 +581,10 @@ MisprintBtn.TextSize = 12
 MisprintBtn.Parent = ControlsFrame
 Instance.new("UICorner", MisprintBtn).CornerRadius = UDim.new(0, 6)
 MisprintBtn.MouseButton1Click:Connect(function()
-    _G.AutoFarm.Filters.Misprint = not _G.AutoFarm.Filters.Misprint
-    MisprintBtn.Text = _G.AutoFarm.Filters.Misprint and "Misprint: ON" or "Misprint: OFF"
-    MisprintBtn.BackgroundColor3 = _G.AutoFarm.Filters.Misprint and Color3.fromRGB(50, 150, 255) or Color3.fromRGB(60, 60, 65)
-    MisprintBtn.TextColor3 = _G.AutoFarm.Filters.Misprint and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(200, 200, 200)
+    AutoFarm.Filters.Misprint = not AutoFarm.Filters.Misprint
+    MisprintBtn.Text = AutoFarm.Filters.Misprint and "Misprint: ON" or "Misprint: OFF"
+    MisprintBtn.BackgroundColor3 = AutoFarm.Filters.Misprint and Color3.fromRGB(50, 150, 255) or Color3.fromRGB(60, 60, 65)
+    MisprintBtn.TextColor3 = AutoFarm.Filters.Misprint and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(200, 200, 200)
 end)
 
 -- Skin Input
@@ -595,7 +600,7 @@ SkinInput.TextSize = 12
 SkinInput.Parent = ControlsFrame
 Instance.new("UICorner", SkinInput).CornerRadius = UDim.new(0, 6)
 SkinInput:GetPropertyChangedSignal("Text"):Connect(function()
-    _G.AutoFarm.Filters.Skin = SkinInput.Text
+    AutoFarm.Filters.Skin = SkinInput.Text
 end)
 
 -- Move Slot Label
@@ -628,7 +633,7 @@ for i = 1, 4 do
     SlotButtons[i] = SlotBtn
     
     SlotBtn.MouseButton1Click:Connect(function()
-        _G.AutoFarm.SelectedMoveSlot = i
+        AutoFarm.SelectedMoveSlot = i
         for j = 1, 4 do
             if j == i then
                 SlotButtons[j].BackgroundColor3 = Color3.fromRGB(75, 150, 255)
@@ -653,4 +658,13 @@ ToggleBtn.Parent = ControlsFrame
 Instance.new("UICorner", ToggleBtn).CornerRadius = UDim.new(0, 8)
 
 ToggleBtn.MouseButton1Click:Connect(function()
-    _G.AutoFarm.Active
+    AutoFarm.Active = not AutoFarm.Active
+    if AutoFarm.Active then
+        ToggleBtn.Text = "⏸️ Stop Auto Farm"
+        ToggleBtn.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+        AutoFarm.Stats.Encounters = 0
+        AutoFarm.Stats.Chain = 0
+        AutoFarm.Stats.Found = 0
+    else
+        ToggleBtn.Text = "▶️ Start Auto Farm"
+        ToggleBtn.BackgroundColor3 
