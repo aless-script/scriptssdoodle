@@ -1,4 +1,4 @@
--- Doodle World Auto Encounter - Based on Working Scripts
+-- Doodle World Auto Encounter - FIXED VERSION
 print("Loading Auto Farm...")
 
 -- Wait for game
@@ -287,6 +287,7 @@ local function EndTurn()
     end)
 end
 
+-- FIXED: Battle action function using working script's method
 local function PerformBattleAction(myDoodle, enemyDoodle, shouldRun)
     if not myDoodle then 
         print("No doodle provided for battle action")
@@ -296,6 +297,7 @@ local function PerformBattleAction(myDoodle, enemyDoodle, shouldRun)
     print("Performing battle action - Run:", shouldRun)
     
     local success, err = pcall(function()
+        -- Hide action bar like the working script does
         local MainGui = Player.PlayerGui:FindFirstChild("MainGui")
         if MainGui then
             local BattleGui = MainGui:FindFirstChild("MainBattle")
@@ -312,6 +314,7 @@ local function PerformBattleAction(myDoodle, enemyDoodle, shouldRun)
         
         if shouldRun then
             print("Running from battle...")
+            -- Use ClientModule.Network:post like the working script
             ClientModule.Network:post("BattleAction", {
                 [1] = {
                     ["Target"] = "RunAway",
@@ -324,6 +327,7 @@ local function PerformBattleAction(myDoodle, enemyDoodle, shouldRun)
                 local moveName = myDoodle.Moves[Settings.SelectedMoveSlot].Name
                 print("Attacking with move:", moveName, "from slot", Settings.SelectedMoveSlot)
                 
+                -- Use ClientModule.Network:post like the working script
                 ClientModule.Network:post("BattleAction", {
                     [1] = {
                         ["Target"] = enemyDoodle and enemyDoodle.ID or myDoodle.ID,
@@ -334,6 +338,7 @@ local function PerformBattleAction(myDoodle, enemyDoodle, shouldRun)
                 })
             else
                 warn("No valid move in slot", Settings.SelectedMoveSlot)
+                -- Fallback to running if no move available
                 ClientModule.Network:post("BattleAction", {
                     [1] = {
                         ["Target"] = "RunAway",
@@ -344,6 +349,7 @@ local function PerformBattleAction(myDoodle, enemyDoodle, shouldRun)
             end
         end
         
+        -- Force end turn
         EndTurn()
     end)
     
@@ -352,7 +358,9 @@ local function PerformBattleAction(myDoodle, enemyDoodle, shouldRun)
     end
 end
 
--- Auto Battle Loop (from working script - monitors GUI instead of events)
+-- FIXED: Auto Battle Loop using working script's pattern
+local lastEncounterProcessed = nil
+
 task.spawn(function()
     print("✓ Auto Battle Loop started")
     
@@ -368,12 +376,16 @@ task.spawn(function()
             if not MainGui then return end
             
             local BattleGui = MainGui:FindFirstChild("MainBattle")
-            if not BattleGui or not BattleGui.Visible then return end
+            if not BattleGui or not BattleGui.Visible then 
+                lastEncounterProcessed = nil
+                return 
+            end
             
             local BottomBar = BattleGui:FindFirstChild("BottomBar")
             if not BottomBar then return end
             
             local ActionBar = BottomBar:FindFirstChild("Actions")
+            -- CRITICAL: Only act when action bar is visible (player's turn)
             if not ActionBar or not ActionBar.Visible then return end
             
             local battleData = GetBattleData()
@@ -391,6 +403,13 @@ task.spawn(function()
                 print("Could not get wild doodle")
                 return
             end
+            
+            -- Prevent processing same encounter multiple times
+            local encounterKey = wildDoodle.ID or tostring(wildDoodle)
+            if lastEncounterProcessed == encounterKey then
+                return
+            end
+            lastEncounterProcessed = encounterKey
             
             -- Update stats
             Stats.Encounters = Stats.Encounters + 1
@@ -598,31 +617,6 @@ local function AddToggle(text, callback)
     return btn
 end
 
--- TextBox Helper
-local function AddTextBox(placeholder, callback)
-    local box = Instance.new("TextBox")
-    box.Size = UDim2.new(1, 0, 0, 32)
-    box.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
-    box.Text = ""
-    box.PlaceholderText = placeholder
-    box.TextColor3 = Color3.fromRGB(255, 255, 255)
-    box.PlaceholderColor3 = Color3.fromRGB(150, 150, 150)
-    box.TextSize = 12
-    box.Font = Enum.Font.Gotham
-    box.ClearTextOnFocus = false
-    box.Parent = Content
-    
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 6)
-    corner.Parent = box
-    
-    box.FocusLost:Connect(function()
-        callback(box.Text)
-    end)
-    
-    return box
-end
-
 -- Dropdown Helper (for Doodle selection)
 local function AddDropdown(text, list, callback)
     local frame = Instance.new("Frame")
@@ -686,7 +680,7 @@ local function AddDropdown(text, list, callback)
         for _, item in ipairs(list) do
             if item:lower():find(query, 1, true) then
                 table.insert(matches, item)
-                if #matches >= 10 then break end -- Limit to 10 results
+                if #matches >= 10 then break end
             end
         end
         
@@ -783,223 +777,4 @@ local function AddSlider(text, min, max, callback)
     bar.Parent = frame
     
     local barCorner = Instance.new("UICorner")
-    barCorner.CornerRadius = UDim.new(0, 3)
-    barCorner.Parent = bar
-    
-    local fill = Instance.new("Frame")
-    fill.Size = UDim2.new(0, 0, 1, 0)
-    fill.BackgroundColor3 = Color3.fromRGB(75, 150, 255)
-    fill.BorderSizePixel = 0
-    fill.Parent = bar
-    
-    local fillCorner = Instance.new("UICorner")
-    fillCorner.CornerRadius = UDim.new(0, 3)
-    fillCorner.Parent = fill
-    
-    local value = min
-    
-    local function update(input)
-        local pos = math.clamp((input.Position.X - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
-        value = math.floor(min + (max - min) * pos)
-        valueLabel.Text = tostring(value)
-        fill.Size = UDim2.new(pos, 0, 1, 0)
-        callback(value)
-    end
-    
-    local dragging = false
-    bar.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = true
-            update(input)
-        end
-    end)
-    
-    bar.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = false
-        end
-    end)
-    
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-            update(input)
-        end
-    end)
-end
-
--- Build GUI
-AddSection("⚙️ Main Controls")
-
-AddToggle("Start Farming", function(value)
-    Settings.Enabled = value
-    print("Farming:", value and "enabled" or "disabled")
-    if value then
-        Stats.Encounters = 0
-        Stats.Chain = 0
-    end
-end)
-
-AddSection("🎯 Filters")
-
-AddDropdown("Search Doodle Name...", DoodleNames, function(text)
-    Settings.TargetSpecies = text
-    print("Target:", text == "" and "Any" or text)
-end)
-
-AddSlider("Minimum Stars", 1, 6, function(value)
-    Settings.MinStars = value
-end)
-
-AddToggle("Only Misprint", function(value)
-    Settings.OnlyMisprint = value
-end)
-
-AddToggle("Only Hidden Trait", function(value)
-    Settings.OnlyHiddenTrait = value
-end)
-
-AddSection("⚔️ Battle Settings")
-
-AddToggle("Chain Mode (Kill/Run)", function(value)
-    Settings.ChainMode = value
-end)
-
-AddSlider("Move Slot", 1, 4, function(value)
-    Settings.SelectedMoveSlot = value
-end)
-
-AddSection("📊 Stats")
-
-local statsLabel = Instance.new("TextLabel")
-statsLabel.Size = UDim2.new(1, 0, 0, 60)
-statsLabel.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
-statsLabel.BorderSizePixel = 0
-statsLabel.Text = "Encounters: 0\nChain: 0\nFound: 0"
-statsLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-statsLabel.TextSize = 13
-statsLabel.Font = Enum.Font.GothamBold
-statsLabel.Parent = Content
-
-local statsCorner = Instance.new("UICorner")
-statsCorner.CornerRadius = UDim.new(0, 6)
-statsCorner.Parent = statsLabel
-
--- Update stats
-task.spawn(function()
-    while task.wait(1) do
-        statsLabel.Text = string.format("Encounters: %d\nChain: %d\nFound: %d", 
-            Stats.Encounters, Stats.Chain, Stats.Found)
-    end
-end)
-
--- Make draggable
-local dragging, dragInput, dragStart, startPos
-
-local function updateDrag(input)
-    local delta = input.Position - dragStart
-    MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-end
-
-TitleBar.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = true
-        dragStart = input.Position
-        startPos = MainFrame.Position
-        
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-            end
-        end)
-    end
-end)
-
-TitleBar.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-        dragInput = input
-    end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-    if input == dragInput and dragging then
-        updateDrag(input)
-    end
-end)
-
-Layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-    Content.CanvasSize = UDim2.new(0, 0, 0, Layout.AbsoluteContentSize.Y + 10)
-end)
-
--- Parent GUI
-ScreenGui.Parent = Player:WaitForChild("PlayerGui")
-
-print("✓ GUI created")
-
--- Encounter Loop - Automatically triggers without walking
-task.spawn(function()
-    print("✓ Encounter loop started - Auto triggering enabled")
-    local lastZone = nil
-    
-    while task.wait(1) do
-        if Settings.Enabled then
-            local char = Player.Character
-            if char and char:FindFirstChild("HumanoidRootPart") then
-                -- Zone detection - check all workspace objects
-                local zone = nil
-                
-                for _, obj in ipairs(Workspace:GetChildren()) do
-                    -- Check if name matches pattern (starts with 3 digits) OR is in our zone list
-                    if obj.Name:match("^%d%d%d_") or zoneEncounters[obj.Name] then
-                        zone = obj.Name
-                        break
-                    end
-                end
-                
-                -- Print zone detection info when it changes
-                if zone ~= lastZone then
-                    if zone then
-                        print("📍 Zone detected:", zone)
-                        if zoneEncounters[zone] then
-                            print("✓ Zone is valid for encounters")
-                        else
-                            -- Auto-add zones that match the pattern
-                            if zone:match("^%d%d%d_") then
-                                print("✓ Auto-adding zone to encounter list")
-                                zoneEncounters[zone] = "WildGrass"
-                            else
-                                warn("⚠️ Zone not in encounter list")
-                            end
-                        end
-                    else
-                        print("⚠️ No zone detected - make sure you're in a route/grass area")
-                    end
-                    lastZone = zone
-                end
-                
-                -- Trigger encounter if in valid zone
-                if zone and zoneEncounters[zone] then
-                    pcall(function()
-                        DudeWhyld:FireServer(zone, zoneEncounters[zone])
-                    end)
-                    task.wait(Settings.EncounterDelay)
-                else
-                    -- No valid zone, wait longer before checking again
-                    task.wait(2)
-                end
-            end
-        end
-    end
-end)
-
--- Disable idle kick
-pcall(function()
-    if getconnections then
-        for _, connection in pairs(getconnections(Player.Idled)) do
-            connection:Disable()
-        end
-    end
-end)
-
-print("✅ Auto Farm Loaded!")
-print("Just stand in any grass zone and press Start!")
-print("It will automatically trigger encounters every", Settings.EncounterDelay, "seconds")
+    barCorner.CornerRadius = UD
