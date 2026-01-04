@@ -2,30 +2,13 @@
 
 print("Script starting...")
 
--- Robust Environment Setup
-local env = nil
-local success, result = pcall(function()
-    return getgenv and getgenv()
-end)
-if success and result then
-    env = result
-else
-    env = _G or {}
-end
-
 print("Environment setup complete")
-
--- Safe wait function
-local wait = wait or task.wait or function(t) 
-    local start = tick()
-    repeat until tick() - start >= (t or 0.03)
-end
 
 print("Wait function defined")
 
 -- Wait for game to fully load
-repeat wait(0.1) until game:IsLoaded()
-wait(1)
+repeat task.wait(0.1) until game:IsLoaded()
+task.wait(1)
 
 -- Get services safely
 local HttpService = game:GetService("HttpService")
@@ -343,11 +326,13 @@ end
 local function EndTurn()
     pcall(function()
         if ClientModule and ClientModule.Network and ClientModule.Network.BindEvent then
-            local UpValues = getupvalues(ClientModule.Network.BindEvent)
-            for i,v in pairs(UpValues) do
-                if typeof(v) == "table" and v["ForceEnd"] ~= nil then
-                    v.ForceEnd()
-                    break
+            if getupvalues then
+                local UpValues = getupvalues(ClientModule.Network.BindEvent)
+                for i,v in pairs(UpValues) do
+                    if typeof(v) == "table" and v["ForceEnd"] ~= nil then
+                        v.ForceEnd()
+                        break
+                    end
                 end
             end
         end
@@ -794,4 +779,271 @@ function Library:CreateWindow(title)
     end
     
     function window:SearchBox(text, options, callback)
-        local SearchFrame = Instance.new
+        local SearchFrame = Instance.new("Frame")
+        SearchFrame.Size = UDim2.new(1, 0, 0, 35)
+        SearchFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+        SearchFrame.BorderSizePixel = 0
+        SearchFrame.Parent = self.ContentFrame
+        
+        local SearchCorner = Instance.new("UICorner")
+        SearchCorner.CornerRadius = UDim.new(0, 6)
+        SearchCorner.Parent = SearchFrame
+        
+        local SearchLabel = Instance.new("TextLabel")
+        SearchLabel.Size = UDim2.new(0.4, 0, 1, 0)
+        SearchLabel.Position = UDim2.new(0, 10, 0, 0)
+        SearchLabel.BackgroundTransparency = 1
+        SearchLabel.Text = text
+        SearchLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        SearchLabel.TextSize = 14
+        SearchLabel.Font = Enum.Font.Gotham
+        SearchLabel.TextXAlignment = Enum.TextXAlignment.Left
+        SearchLabel.Parent = SearchFrame
+        
+        local SearchBox = Instance.new("TextBox")
+        SearchBox.Size = UDim2.new(0.55, -10, 0, 25)
+        SearchBox.Position = UDim2.new(0.45, 0, 0.5, -12.5)
+        SearchBox.BackgroundColor3 = Color3.fromRGB(50, 50, 55)
+        SearchBox.Text = ""
+        SearchBox.PlaceholderText = "Search or type..."
+        SearchBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+        SearchBox.PlaceholderColor3 = Color3.fromRGB(150, 150, 150)
+        SearchBox.TextSize = 12
+        SearchBox.Font = Enum.Font.Gotham
+        SearchBox.ClearTextOnFocus = false
+        SearchBox.Parent = SearchFrame
+        
+        local BoxCorner = Instance.new("UICorner")
+        BoxCorner.CornerRadius = UDim.new(0, 6)
+        BoxCorner.Parent = SearchBox
+        
+        local ResultsList = Instance.new("Frame")
+        ResultsList.Size = UDim2.new(0.55, -10, 0, 0)
+        ResultsList.Position = UDim2.new(0.45, 0, 1, 5)
+        ResultsList.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+        ResultsList.BorderSizePixel = 0
+        ResultsList.Visible = false
+        ResultsList.ZIndex = 10
+        ResultsList.Parent = SearchFrame
+        
+        local ResultsCorner = Instance.new("UICorner")
+        ResultsCorner.CornerRadius = UDim.new(0, 6)
+        ResultsCorner.Parent = ResultsList
+        
+        local ResultsScroll = Instance.new("ScrollingFrame")
+        ResultsScroll.Size = UDim2.new(1, -4, 1, -4)
+        ResultsScroll.Position = UDim2.new(0, 2, 0, 2)
+        ResultsScroll.BackgroundTransparency = 1
+        ResultsScroll.BorderSizePixel = 0
+        ResultsScroll.ScrollBarThickness = 4
+        ResultsScroll.Parent = ResultsList
+        
+        local ResultsLayout = Instance.new("UIListLayout")
+        ResultsLayout.Padding = UDim.new(0, 2)
+        ResultsLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        ResultsLayout.Parent = ResultsScroll
+        
+        local function updateResults(query)
+            for _, child in ipairs(ResultsScroll:GetChildren()) do
+                if child:IsA("TextButton") then
+                    child:Destroy()
+                end
+            end
+            
+            if query == "" or not options.list then
+                ResultsList.Visible = false
+                return
+            end
+            
+            local matches = {}
+            query = query:lower()
+            
+            for _, item in ipairs(options.list) do
+                if item:lower():find(query, 1, true) then
+                    table.insert(matches, item)
+                end
+            end
+            
+            if #matches == 0 then
+                ResultsList.Visible = false
+                return
+            end
+            
+            for _, item in ipairs(matches) do
+                local ItemButton = Instance.new("TextButton")
+                ItemButton.Size = UDim2.new(1, -8, 0, 25)
+                ItemButton.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+                ItemButton.Text = item
+                ItemButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+                ItemButton.TextSize = 12
+                ItemButton.Font = Enum.Font.Gotham
+                ItemButton.TextTruncate = Enum.TextTruncate.AtEnd
+                ItemButton.Parent = ResultsScroll
+                
+                local ItemCorner = Instance.new("UICorner")
+                ItemCorner.CornerRadius = UDim.new(0, 4)
+                ItemCorner.Parent = ItemButton
+                
+                ItemButton.MouseButton1Click:Connect(function()
+                    SearchBox.Text = item
+                    ResultsList.Visible = false
+                    callback(item)
+                end)
+                
+                ItemButton.MouseEnter:Connect(function()
+                    ItemButton.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
+                end)
+                
+                ItemButton.MouseLeave:Connect(function()
+                    ItemButton.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+                end)
+            end
+            
+            ResultsList.Visible = true
+            local contentHeight = math.min(ResultsLayout.AbsoluteContentSize.Y + 4, 200)
+            ResultsList.Size = UDim2.new(0.55, -10, 0, contentHeight)
+            ResultsScroll.CanvasSize = UDim2.new(0, 0, 0, ResultsLayout.AbsoluteContentSize.Y + 4)
+        end
+        
+        SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
+            updateResults(SearchBox.Text)
+        end)
+        
+        SearchBox.FocusLost:Connect(function(enterPressed)
+            if enterPressed and SearchBox.Text ~= "" then
+                callback(SearchBox.Text)
+            end
+            task.wait(0.1)
+            ResultsList.Visible = false
+        end)
+        
+        return {Object = SearchBox, Frame = SearchFrame}
+    end
+    
+    return window
+end
+
+-- Create GUI
+print("Creating GUI...")
+local Window = Library:CreateWindow("Doodle Autofarm v3.1")
+
+if not Window then
+    warn("❌ Failed to create GUI window!")
+    return
+end
+
+Window:Section("Main Controls")
+
+local GuiObjects = {}
+
+GuiObjects.EnabledToggle = Window:Toggle("Start Farming", {}, function(value)
+    Enabled = value
+    print("Farming", value and "enabled" or "disabled")
+    if value then
+        Stats.Encounters = 0
+        Stats.Chain = 0
+    end
+end)
+
+Window:Section("Battle Options")
+
+GuiObjects.ChainToggle = Window:Toggle("Chain Mode (Kill/Run)", {}, function(value)
+    Settings.Chain = value
+end)
+
+GuiObjects.AutoRunToggle = Window:Toggle("Auto Run (All Battles)", {}, function(value)
+    Settings.AutoRun = value
+end)
+
+GuiObjects.MoveSlider = Window:Slider("Move Slot to Use", {min=1, max=4}, function(value)
+    Settings.SelectedMoveSlot = value
+end)
+
+Window:Section("Catch Filters")
+
+GuiObjects.StarSlider = Window:Slider("Minimum Stars", {min=1, max=6}, function(value)
+    Settings.Stars = value
+end)
+
+GuiObjects.DoodleSelection = Window:SearchBox("Doodle to Catch", {list=DoodleNames}, function(input)
+    if DoodleInfo[input] then
+        Settings.Doodle = {Name = input, Data = DoodleInfo[input]}
+        print("Selected Doodle:", input)
+    else
+        Settings.Doodle = {Name = "None", Data = {}}
+    end
+end)
+
+GuiObjects.MisprintToggle = Window:Toggle("Only Misprint", {}, function(value)
+    Settings.Misprint = value
+end)
+
+Window:Section("Stats")
+local StatsLabel = Instance.new("TextLabel")
+StatsLabel.Size = UDim2.new(1, 0, 0, 60)
+StatsLabel.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+StatsLabel.BorderSizePixel = 0
+StatsLabel.Text = "Encounters: 0\nChain: 0\nFound: 0"
+StatsLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+StatsLabel.TextSize = 14
+StatsLabel.Font = Enum.Font.GothamBold
+StatsLabel.Parent = Window.ContentFrame
+
+local StatsCorner = Instance.new("UICorner")
+StatsCorner.CornerRadius = UDim.new(0, 6)
+StatsCorner.Parent = StatsLabel
+
+-- Update stats display
+task.spawn(function()
+    while task.wait(1) do
+        StatsLabel.Text = string.format("Encounters: %d\nChain: %d\nFound: %d", 
+            Stats.Encounters, Stats.Chain, Stats.Found)
+    end
+end)
+
+-- Encounter Loop (Using correct remote from working script)
+task.spawn(function()
+    print("Encounter loop started!")
+    while task.wait(1) do
+        if Enabled then
+            local char = Player.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                -- Detect current zone
+                local currentZone = nil
+                for _, obj in ipairs(Workspace:GetChildren()) do
+                    if obj.Name:match("^%d%d%d_") or zoneEncounters[obj.Name] then
+                        currentZone = obj.Name
+                        break
+                    end
+                end
+                
+                -- Trigger encounter using DudeWhyld remote
+                if currentZone and zoneEncounters[currentZone] and DudeWhyld then
+                    pcall(function()
+                        DudeWhyld:FireServer(currentZone, zoneEncounters[currentZone])
+                    end)
+                end
+            end
+            task.wait(Settings.EncounterDelay)
+        end
+    end
+end)
+
+-- Disable idle kick
+pcall(function()
+    if getconnections then
+        for i,v in pairs(getconnections(Player.Idled)) do
+            v:Disable()
+        end
+    end
+end)
+
+print("✅ Doodle Autofarm Loaded Successfully!")
+print("GUI should be visible on your screen")
+print("")
+print("Instructions:")
+print("1. Select the Doodle you want to hunt")
+print("2. Set minimum stars and other filters")
+print("3. Enable 'Chain Mode' to auto-kill/run encounters")
+print("4. Click 'Start Farming' to begin")
+print("5. Walk around in grass areas to trigger encounters")
