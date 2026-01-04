@@ -1,22 +1,25 @@
 -- Doodle World Auto Encounter System - FIXED
-if not game or not game:GetService then return end
 
--- Wait for game to load
-repeat task.wait() until game:IsLoaded()
-
-task.wait(1)
-
-local GameId = game.GameId
-if GameId == 0 then
-    game:GetPropertyChangedSignal("GameId"):Wait()
-    GameId = game.GameId
-    task.wait(0.5)
+-- Robust Environment Setup
+local env = nil
+local success, result = pcall(function()
+    return getgenv and getgenv()
+end)
+if success and result then
+    env = result
+else
+    env = _G or {}
 end
 
-if GameId ~= 1775919872 then
-    warn("This script is only for Doodle World!")
-    return
+-- Safe wait function
+local wait = wait or function(t) 
+    local start = tick()
+    repeat until tick() - start >= (t or 0.03)
 end
+
+-- Wait for game to fully load
+repeat wait(0.1) until game:IsLoaded()
+wait(1)
 
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
@@ -27,6 +30,8 @@ if not Player then
     Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
     Player = Players.LocalPlayer
 end
+
+print("Loading Doodle World Auto Farm...")
 
 -- Wait for required components
 local Remotes = Player:WaitForChild("Remotes", 30)
@@ -544,8 +549,11 @@ GuiObjects.DoodleSelection = Window:SearchBox("Doodle to Catch", {list=DoodleNam
     end
 end)
 
-for i,v in pairs(getconnections(Player.Idled)) do
-    v:Disable()
-end
+-- Disable idle kick
+pcall(function()
+    for i,v in pairs(getconnections(Player.Idled)) do
+        v:Disable()
+    end
+end)
 
 print("✅ Doodle Autofarm Loaded!")
