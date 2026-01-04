@@ -1,3 +1,11 @@
+-- Initialize _G safely at line 1
+if not _G then
+    _G = shared or getfenv()
+end
+if not getgenv then
+    getgenv = function() return _G end
+end
+
 -- Doodle World Complete Auto Farm
 -- Combines Auto Battle + Chain Hunting + Filters
 
@@ -646,6 +654,3 @@ StartBattleEvent.OnClientEvent:Connect(function(battleData)
         
         if isMatch then
             -- Perfect match! Stop and notify
-            _G.AutoFarm.Active = false
-            _G.AutoFarm.Stats.Found = _G.AutoFarm.Stats.Found + 1
-            ToggleBtn.Text = "🎉 Found Match!"
