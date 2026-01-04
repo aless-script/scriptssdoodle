@@ -1,37 +1,21 @@
 -- Doodle World Auto Encounter - COMPLETE FIXED VERSION
+_G.DoodleAutoFarmLoaded = _G.DoodleAutoFarmLoaded or false
+
+if _G.DoodleAutoFarmLoaded then
+    warn("⚠️ Script already loaded! Close the old GUI first.")
+    return
+end
+
 print("Loading Auto Farm...")
 
--- Check executor compatibility
-local isCompatible = true
-local missingFunctions = {}
-
-if not game.IsLoaded then
-    table.insert(missingFunctions, "game.IsLoaded")
-    isCompatible = false
-end
-
-if not isCompatible then
-    warn("⚠️ Executor may not be fully compatible!")
-    warn("Missing functions:", table.concat(missingFunctions, ", "))
-    warn("Script will attempt to run anyway...")
-    task.wait(2)
-end
-
 -- Wait for game
-if game.IsLoaded then
-    repeat task.wait() until game:IsLoaded()
-else
-    task.wait(5) -- Fallback wait
-end
+repeat task.wait() until game:IsLoaded()
 
 if game.GameId == 0 then
-    local success = pcall(function()
-        game:GetPropertyChangedSignal("GameId"):Wait()
-    end)
-    if not success then
-        task.wait(5)
-    end
+    game:GetPropertyChangedSignal("GameId"):Wait()
 end
+
+_G.DoodleAutoFarmLoaded = true
 
 -- Services
 local Players = game:GetService("Players")
@@ -133,8 +117,8 @@ if DoodleInfo then
     print("✓ Loaded", #DoodleNames, "Doodles")
 end
 
--- Zone Map
-local zoneEncounters = {
+-- Zone Map (stored in _G)
+_G.DoodleZoneEncounters = _G.DoodleZoneEncounters or {
     ["025_Sweetsville"] = "WildGrass",
     ["033_Academy"] = "WildGrass",
     ["029_SubwayStation"] = "WildGrass",
@@ -157,6 +141,8 @@ local zoneEncounters = {
     ["028_PirateCabin"] = "WildGrass",
     ["031_CandyFactory"] = "WildGrass"
 }
+
+local zoneEncounters = _G.DoodleZoneEncounters
 
 -- Zone Detection (simplified - no hooks needed)
 local DetectedZones = {
@@ -198,8 +184,8 @@ print("Script will only stop for Doodles that match ALL your filters!")",
 
 print("✓ Zone detection ready")
 
--- Settings
-local Settings = {
+-- Settings (stored in _G for persistence)
+_G.DoodleAutoFarmSettings = _G.DoodleAutoFarmSettings or {
     Enabled = false,
     TargetSpecies = "",
     OnlyMisprint = false,
@@ -214,11 +200,15 @@ local Settings = {
     HealLocation = "Academy"
 }
 
-local Stats = {
+local Settings = _G.DoodleAutoFarmSettings
+
+_G.DoodleAutoFarmStats = _G.DoodleAutoFarmStats or {
     Encounters = 0,
     Chain = 0,
     Found = 0
 }
+
+local Stats = _G.DoodleAutoFarmStats
 
 -- Helper Functions
 local function GetBattleData()
@@ -639,6 +629,7 @@ CloseCorner.Parent = CloseBtn
 
 CloseBtn.MouseButton1Click:Connect(function()
     Settings.Enabled = false
+    _G.DoodleAutoFarmLoaded = false
     ScreenGui:Destroy()
 end)
 
