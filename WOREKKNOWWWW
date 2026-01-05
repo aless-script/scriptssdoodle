@@ -142,7 +142,7 @@ local Settings = {
     TargetAbility = "",
     TargetGender = "Any",
     TargetSkin = "Any",
-    MinStars = 0,
+    MinStars = -1,  -- -1 = Any stars (don't care)
     ChainMode = false,
     SelectedMoveSlot = 1,
     EncounterDelay = 2,
@@ -257,12 +257,12 @@ local function CheckMatch(wildDoodle)
         end
     end
     
-    -- Check stars
-    if Settings.MinStars > 0 then
+    -- Check stars (only if user cares about stars)
+    if Settings.MinStars >= 1 then
         hasAnyFilter = true
         local stars = wildDoodle.Star or 0
-        if stars < Settings.MinStars then
-            table.insert(failReasons, "Low Stars (" .. stars .. "/" .. Settings.MinStars .. ")")
+        if stars ~= Settings.MinStars then
+            table.insert(failReasons, "Wrong Stars (" .. stars .. " ⭐, need exactly " .. Settings.MinStars .. " ⭐)")
         end
     end
     
@@ -511,11 +511,25 @@ task.spawn(function()
                         task.wait(0.8)
                         
                         pcall(function()
-                            BattleAction:FireServer({
-                                ["Target"] = "RunAway",
-                                ["ActionType"] = "Run",
-                                ["User"] = myDoodle.ID,
-                            })
+                            local runSuccess = pcall(function()
+                                BattleAction:FireServer({
+                                    ["Target"] = "RunAway",
+                                    ["ActionType"] = "Run",
+                                    ["User"] = myDoodle.ID,
+                                })
+                            end)
+                            
+                            if not runSuccess then
+                                print("⚠️ Run action failed, trying alternative method")
+                                -- Alternative run method
+                                ClientModule.Network:post("BattleAction", {
+                                    [1] = {
+                                        ["Target"] = "RunAway",
+                                        ["ActionType"] = "Run",
+                                        ["User"] = myDoodle.ID,
+                                    }
+                                })
+                            end
                         end)
                         
                         task.wait(0.5)
@@ -527,11 +541,25 @@ task.spawn(function()
                     task.wait(0.8)
                     
                     pcall(function()
-                        BattleAction:FireServer({
-                            ["Target"] = "RunAway",
-                            ["ActionType"] = "Run",
-                            ["User"] = myDoodle.ID,
-                        })
+                        local runSuccess = pcall(function()
+                            BattleAction:FireServer({
+                                ["Target"] = "RunAway",
+                                ["ActionType"] = "Run",
+                                ["User"] = myDoodle.ID,
+                            })
+                        end)
+                        
+                        if not runSuccess then
+                            print("⚠️ Run action failed, trying alternative method")
+                            -- Alternative run method
+                            ClientModule.Network:post("BattleAction", {
+                                [1] = {
+                                    ["Target"] = "RunAway",
+                                    ["ActionType"] = "Run",
+                                    ["User"] = myDoodle.ID,
+                                }
+                            })
+                        end
                     end)
                     
                     task.wait(0.5)
@@ -1142,7 +1170,7 @@ filterCorner.Parent = activeFiltersLabel
 local function UpdateActiveFilters()
     local filters = {}
     if Settings.TargetSpecies ~= "" then table.insert(filters, "Species: " .. Settings.TargetSpecies) end
-    if Settings.MinStars > 0 then table.insert(filters, "Min Stars: " .. Settings.MinStars .. "⭐") end
+    if Settings.MinStars >= 1 then table.insert(filters, "Exact Stars: " .. Settings.MinStars .. "⭐") end
     if Settings.OnlyMisprint then table.insert(filters, "Misprint Only") end
     if Settings.OnlyHiddenTrait then table.insert(filters, "Hidden Trait Only") end
     if Settings.TargetAbility ~= "" then table.insert(filters, "Ability: " .. Settings.TargetAbility) end
@@ -1150,10 +1178,10 @@ local function UpdateActiveFilters()
     if Settings.TargetSkin ~= "Any" then table.insert(filters, "Skin: " .. Settings.TargetSkin) end
     
     if #filters == 0 then
-        activeFiltersLabel.Text = "🎯 ACTIVE FILTERS:\nNone - will catch any Doodle"
-        activeFiltersLabel.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
+        activeFiltersLabel.Text = "🎯 ACTIVE FILTERS:\nNone - Set filters or script won't stop!"
+        activeFiltersLabel.BackgroundColor3 = Color3.fromRGB(150, 50, 50)
     else
-        activeFiltersLabel.Text = "🎯 ACTIVE FILTERS:\n" .. table.concat(filters, ", ")
+        activeFiltersLabel.Text = "🎯 ACTIVE FILTERS (ALL must match):\n" .. table.concat(filters, ", ")
         activeFiltersLabel.BackgroundColor3 = Color3.fromRGB(60, 100, 60)
     end
 end
@@ -1164,9 +1192,13 @@ AddDropdown(filtersTab, "🔍 Search Doodle Name...", DoodleNames, function(text
     UpdateActiveFilters()
 end)
 
-AddSlider(filtersTab, "Minimum Stars ⭐", 0, 6, 0, function(value)
+AddSlider(filtersTab, "Exact Stars ⭐ (Any/1-6)", -1, 6, -1, function(value)
     Settings.MinStars = value
-    print("Min Stars:", value)
+    if value == -1 then
+        print("Stars: Any (don't care)")
+    else
+        print("Exact Stars:", value, "⭐ ONLY")
+    end
     UpdateActiveFilters()
 end)
 
