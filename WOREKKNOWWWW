@@ -490,12 +490,17 @@ task.spawn(function()
                             print("🗡️ Using move:", moveName)
                             
                             pcall(function()
-                                BattleAction:FireServer({
-                                    ["Target"] = wildDoodle.ID,
-                                    ["ActionType"] = "Attack",
-                                    ["Action"] = moveName,
-                                    ["User"] = myDoodle.ID,
-                                })
+                                if ClientModule and ClientModule.Network and ClientModule.Network.post then
+                                    ClientModule.Network:post("BattleAction", {
+                                        [1] = {
+                                            ["Target"] = wildDoodle.ID,
+                                            ["ActionType"] = "Attack",
+                                            ["Action"] = moveName,
+                                            ["User"] = myDoodle.ID,
+                                        }
+                                    })
+                                    print("✓ Attack command sent")
+                                end
                             end)
                             
                             task.wait(0.5)
@@ -508,20 +513,11 @@ task.spawn(function()
                         Stats.Chain = 0
                         print("🔗 Chain reset to 0")
                         
-                        task.wait(0.8)
+                        task.wait(1)
                         
-                        pcall(function()
-                            local runSuccess = pcall(function()
-                                BattleAction:FireServer({
-                                    ["Target"] = "RunAway",
-                                    ["ActionType"] = "Run",
-                                    ["User"] = myDoodle.ID,
-                                })
-                            end)
-                            
-                            if not runSuccess then
-                                print("⚠️ Run action failed, trying alternative method")
-                                -- Alternative run method
+                        -- Try to run using the proper battle system
+                        local success = pcall(function()
+                            if ClientModule and ClientModule.Network and ClientModule.Network.post then
                                 ClientModule.Network:post("BattleAction", {
                                     [1] = {
                                         ["Target"] = "RunAway",
@@ -529,8 +525,14 @@ task.spawn(function()
                                         ["User"] = myDoodle.ID,
                                     }
                                 })
+                                print("✓ Run command sent via Network.post")
                             end
                         end)
+                        
+                        if not success then
+                            print("⚠️ Attempting alternate run method...")
+                            task.wait(0.3)
+                        end
                         
                         task.wait(0.5)
                         EndTurn()
@@ -538,20 +540,11 @@ task.spawn(function()
                 else
                     print("🏃 Running from battle (Chain Mode OFF)")
                     
-                    task.wait(0.8)
+                    task.wait(1)
                     
-                    pcall(function()
-                        local runSuccess = pcall(function()
-                            BattleAction:FireServer({
-                                ["Target"] = "RunAway",
-                                ["ActionType"] = "Run",
-                                ["User"] = myDoodle.ID,
-                            })
-                        end)
-                        
-                        if not runSuccess then
-                            print("⚠️ Run action failed, trying alternative method")
-                            -- Alternative run method
+                    -- Try to run using the proper battle system
+                    local success = pcall(function()
+                        if ClientModule and ClientModule.Network and ClientModule.Network.post then
                             ClientModule.Network:post("BattleAction", {
                                 [1] = {
                                     ["Target"] = "RunAway",
@@ -559,8 +552,14 @@ task.spawn(function()
                                     ["User"] = myDoodle.ID,
                                 }
                             })
+                            print("✓ Run command sent via Network.post")
                         end
                     end)
+                    
+                    if not success then
+                        print("⚠️ Attempting alternate run method...")
+                        task.wait(0.3)
+                    end
                     
                     task.wait(0.5)
                     EndTurn()
