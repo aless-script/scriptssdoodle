@@ -1,47 +1,112 @@
--- Combined Auto Encounter & Chain Hunter
--- Optimized and Compact GUI
+-- Doodle World Auto Encounter - COMPLETE FIXED VERSION
+print("Loading Auto Farm...")
 
--- Safety checks
-if not game or not game.GetService then return end
+-- Wait for game
+repeat task.wait() until game:IsLoaded()
 
--- Robust Environment Setup
-local env = nil
-local success, result = pcall(function()
-    return getgenv and getgenv()
-end)
-
-if success and result then
-    env = result
-else
-    env = _G or {}
+if game.GameId == 0 then
+    game:GetPropertyChangedSignal("GameId"):Wait()
 end
 
--- Initialize State
-env.AutoEncounter = {
-    Active = false,
-    ChainMode = false,
-    CurrentZone = nil,
-    Delay = 2,
-    Filters = {
-        Species = "",
-        Shiny = false,
-        Misprint = false,
-        HiddenTrait = false,
-        Gender = "Any", -- Any, Male, Female
-        MinStars = 0,
-        MinIV = 0
-    },
-    Stats = {
-        Encounters = 0,
-        Chain = 0
-    }
-}
+-- Services
+local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
 
-local player = game:GetService("Players").LocalPlayer
-local remotes = player:WaitForChild("Remotes", 10)
-if not remotes then return end
-local dudeWhyld = remotes:WaitForChild("DudeWhyld", 5)
-local startBattle = remotes:WaitForChild("StartBattle", 5)
+local Player = Players.LocalPlayer
+if not Player then
+    Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
+    Player = Players.LocalPlayer
+end
+
+print("Player found:", Player.Name)
+
+-- Wait for Remotes
+local Remotes = Player:WaitForChild("Remotes", 30)
+if not Remotes then
+    warn("❌ Remotes not found!")
+    return
+end
+print("✓ Remotes found")
+
+-- Get remotes
+local DudeWhyld = Remotes:WaitForChild("DudeWhyld", 10)
+local BattleAction = Remotes:WaitForChild("BattleAction", 10)
+
+if not DudeWhyld then
+    warn("❌ DudeWhyld not found!")
+    return
+end
+print("✓ DudeWhyld found")
+
+if not BattleAction then
+    warn("❌ BattleAction not found!")
+    return
+end
+print("✓ BattleAction found")
+
+-- Get Client
+local Client = Player:WaitForChild("Client", 30)
+if not Client then
+    warn("❌ Client not found!")
+    return
+end
+
+local ClientModule = require(Client)
+print("✓ Client module loaded")
+
+-- Get Database
+local Database = nil
+local ClientRunner = Player:FindFirstChild("ClientRunner")
+
+if ClientRunner then
+    Database = ClientRunner:FindFirstChild("Database")
+    if Database then
+        print("✓ Database found in ClientRunner")
+    end
+end
+
+if not Database and Client then
+    Database = Client:FindFirstChild("ClientDatabase") or Client:FindFirstChild("Database")
+    if Database then
+        print("✓ Database found in Client")
+    end
+end
+
+if not Database then
+    warn("❌ Database not found!")
+    return
+end
+
+-- Load DoodleInfo
+local DoodleInfo = nil
+local DoodleInfoModule = Database:FindFirstChild("DoodleInfo")
+if DoodleInfoModule then
+    local success, err = pcall(function()
+        DoodleInfo = require(DoodleInfoModule)
+    end)
+    
+    if success then
+        print("✓ DoodleInfo loaded")
+    else
+        warn("❌ Failed to load DoodleInfo:", err)
+        return
+    end
+else
+    warn("❌ DoodleInfo module not found!")
+    return
+end
+
+-- Build Doodle list
+local DoodleNames = {}
+if DoodleInfo then
+    for name, _ in pairs(DoodleInfo) do
+        table.insert(DoodleNames, name)
+    end
+    table.sort(DoodleNames)
+    print("✓ Loaded", #DoodleNames, "Doodles")
+end
 
 -- Zone Map
 local zoneEncounters = {
@@ -49,258 +114,1356 @@ local zoneEncounters = {
     ["033_Academy"] = "WildGrass",
     ["029_SubwayStation"] = "WildGrass",
     ["TheCarnival"] = "WildGrass",
-    -- Add more if needed or rely on auto-detection
+    ["Route_1"] = "WildGrass",
+    ["006_Route2"] = "WildGrass",
+    ["007_Lakewood"] = "WildGrass",
+    ["008_LakewoodSewers"] = "WildGrass",
+    ["011_Sewer"] = "WildGrass",
+    ["010_Route3"] = "WildGrass",
+    ["013_Route4"] = "WildGrass",
+    ["014_GraphiteLodge"] = "WildGrass",
+    ["015_GraphiteLodgePath"] = "WildGrass",
+    ["017_Crossroads"] = "WildGrass",
+    ["018_CrystalCaverns"] = "WildGrass",
+    ["020_GraphiteForest"] = "WildGrass",
+    ["022_ForestMaze"] = "WildGrass",
+    ["024_Route5"] = "WildGrass",
+    ["026_VonSweetenManor"] = "WildGrass",
+    ["028_PirateCabin"] = "WildGrass",
+    ["031_CandyFactory"] = "WildGrass"
 }
 
--- GUI Creation
-local gui = Instance.new("ScreenGui")
-gui.Name = "CompactAutoEncounter"
-gui.ResetOnSpawn = false
-gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-
-local main = Instance.new("Frame")
-main.Name = "MainFrame"
-main.Size = UDim2.new(0, 220, 0, 320) -- Compact size
-main.Position = UDim2.new(0.05, 0, 0.5, -160)
-main.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-main.BorderSizePixel = 0
-main.Active = true
-main.Draggable = true
-main.Parent = gui
-
-local uicorner = Instance.new("UICorner")
-uicorner.CornerRadius = UDim.new(0, 8)
-uicorner.Parent = main
-
--- Header
-local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, -30, 0, 30)
-title.Position = UDim2.new(0, 10, 0, 0)
-title.BackgroundTransparency = 1
-title.Text = "⚔️ Auto Encounter"
-title.TextColor3 = Color3.fromRGB(255, 255, 255)
-title.Font = Enum.Font.GothamBold
-title.TextSize = 14
-title.TextXAlignment = Enum.TextXAlignment.Left
-title.Parent = main
-
-local closeBtn = Instance.new("TextButton")
-closeBtn.Size = UDim2.new(0, 25, 0, 25)
-closeBtn.Position = UDim2.new(1, -30, 0, 2.5)
-closeBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-closeBtn.Text = "X"
-closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-closeBtn.Font = Enum.Font.GothamBold
-closeBtn.Parent = main
-Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 4)
-
-closeBtn.MouseButton1Click:Connect(function()
-    env.AutoEncounter.Active = false
-    gui:Destroy()
-end)
-
--- Info Display (The requested fields)
-local infoFrame = Instance.new("Frame")
-infoFrame.Size = UDim2.new(1, -20, 0, 160)
-infoFrame.Position = UDim2.new(0, 10, 0, 35)
-infoFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
-infoFrame.Parent = main
-Instance.new("UICorner", infoFrame).CornerRadius = UDim.new(0, 6)
-
-local function createInfoLine(order, labelText)
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, -10, 0, 18)
-    label.Position = UDim2.new(0, 5, 0, (order - 1) * 18 + 5)
-    label.BackgroundTransparency = 1
-    label.Text = labelText .. ": -"
-    label.TextColor3 = Color3.fromRGB(200, 200, 200)
-    label.Font = Enum.Font.Gotham
-    label.TextSize = 11
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.Parent = infoFrame
-    return label
-end
-
-local infoLabels = {
-    Name = createInfoLine(1, "Name"),
-    Stars = createInfoLine(2, "Stars"),
-    Trait = createInfoLine(3, "Trait"),
-    Gender = createInfoLine(4, "Gender"),
-    Misprint = createInfoLine(5, "Misprint"),
-    Item = createInfoLine(6, "Item"),
-    Equip = createInfoLine(7, "Equip"),
-    Skin = createInfoLine(8, "Skin"),
+-- Settings
+local Settings = {
+    Enabled = false,
+    TargetSpecies = "",
+    OnlyMisprint = false,
+    OnlyHiddenTrait = false,
+    TargetAbility = "",
+    TargetGender = "Any",
+    TargetSkin = "Any",
+    MinStars = -1,  -- -1 = Any stars (don't care)
+    ChainMode = false,
+    SelectedMoveSlot = 1,
+    EncounterDelay = 2,
+    HealLocation = "Academy",
+    FastBattles = true
 }
 
--- Controls
-local controlFrame = Instance.new("Frame")
-controlFrame.Size = UDim2.new(1, -20, 0, 110)
-controlFrame.Position = UDim2.new(0, 10, 0, 200)
-controlFrame.BackgroundTransparency = 1
-controlFrame.Parent = main
+local Stats = {
+    Encounters = 0,
+    Chain = 0,
+    Found = 0
+}
 
--- Mode Toggle
-local chainModeBtn = Instance.new("TextButton")
-chainModeBtn.Size = UDim2.new(1, 0, 0, 25)
-chainModeBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
-chainModeBtn.Text = "Chain Mode: OFF"
-chainModeBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
-chainModeBtn.Font = Enum.Font.Gotham
-chainModeBtn.TextSize = 12
-chainModeBtn.Parent = controlFrame
-Instance.new("UICorner", chainModeBtn).CornerRadius = UDim.new(0, 6)
-
-chainModeBtn.MouseButton1Click:Connect(function()
-    env.AutoEncounter.ChainMode = not env.AutoEncounter.ChainMode
-    if env.AutoEncounter.ChainMode then
-        chainModeBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 255)
-        chainModeBtn.Text = "Chain Mode: ON"
-        chainModeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    else
-        chainModeBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
-        chainModeBtn.Text = "Chain Mode: OFF"
-        chainModeBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
-    end
-end)
-
--- Target Species Input (Only relevant for Chain Mode)
-local speciesInput = Instance.new("TextBox")
-speciesInput.Size = UDim2.new(1, 0, 0, 25)
-speciesInput.Position = UDim2.new(0, 0, 0, 30)
-speciesInput.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
-speciesInput.Text = ""
-speciesInput.PlaceholderText = "Target Species (for Chain)"
-speciesInput.TextColor3 = Color3.fromRGB(255, 255, 255)
-speciesInput.Font = Enum.Font.Gotham
-speciesInput.TextSize = 12
-speciesInput.Parent = controlFrame
-Instance.new("UICorner", speciesInput).CornerRadius = UDim.new(0, 6)
-
-speciesInput:GetPropertyChangedSignal("Text"):Connect(function()
-    env.AutoEncounter.Filters.Species = speciesInput.Text
-end)
-
--- Start/Stop
-local toggleBtn = Instance.new("TextButton")
-toggleBtn.Size = UDim2.new(1, 0, 0, 35)
-toggleBtn.Position = UDim2.new(0, 0, 1, -35)
-toggleBtn.BackgroundColor3 = Color3.fromRGB(50, 200, 100)
-toggleBtn.Text = "▶️ Start"
-toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-toggleBtn.Font = Enum.Font.GothamBold
-toggleBtn.TextSize = 14
-toggleBtn.Parent = controlFrame
-Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(0, 6)
-
-toggleBtn.MouseButton1Click:Connect(function()
-    env.AutoEncounter.Active = not env.AutoEncounter.Active
-    if env.AutoEncounter.Active then
-        toggleBtn.Text = "⏸️ Stop"
-        toggleBtn.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
-    else
-        toggleBtn.Text = "▶️ Start"
-        toggleBtn.BackgroundColor3 = Color3.fromRGB(50, 200, 100)
-    end
-end)
-
--- Logic
-local function updateDisplay(data)
-    if not data then return end
-    infoLabels.Name.Text = "Name: " .. (data.Name or data.RealName or "Unknown")
-    infoLabels.Stars.Text = "Stars: " .. (data.Star or 0) .. "⭐"
-    infoLabels.Trait.Text = "Trait: " .. (data.Trait or "None")
+-- Helper Functions
+local function GetBattleData()
+    local battleData = nil
     
-    local gender = "Genderless"
-    if data.Gender == "Male" then gender = "♂ Male" end
-    if data.Gender == "Female" then gender = "♀ Female" end
-    infoLabels.Gender.Text = "Gender: " .. gender
-    
-    local misprint = "No"
-    if data.Shiny then misprint = "Shiny" end
-    if data.Color and data.Color ~= "Normal" then misprint = data.Color end
-    infoLabels.Misprint.Text = "Misprint: " .. misprint
-    
-    infoLabels.Item.Text = "Item: " .. (data.Item or "None")
-    infoLabels.Equip.Text = "Equip: " .. (data.Equipment or "None")
-    infoLabels.Skin.Text = "Skin: " .. (data.Skin or "None")
-end
-
-local function checkMatch(data)
-    if env.AutoEncounter.Filters.Species ~= "" then
-        local name = (data.Name or data.RealName or ""):lower()
-        if not name:find(env.AutoEncounter.Filters.Species:lower()) then
-            return false
+    pcall(function()
+        if ClientModule.Battle and ClientModule.Battle.CurrentBattle then
+            battleData = ClientModule.Battle.CurrentBattle
         end
-    end
-    -- Add other filter checks here if we add UI for them (Stars, etc.)
-    return true
+    end)
+    
+    return battleData
 end
 
--- Battle Event Hook
-startBattle.OnClientEvent:Connect(function(battleData)
-    if not env.AutoEncounter.Active then return end
+local function GetOutDoodle()
+    local battleData = GetBattleData()
+    if not battleData then return nil end
     
-    local wildDoodle = battleData.Player2Party and battleData.Player2Party[1]
-    if wildDoodle then
-        updateDisplay(wildDoodle)
+    local success, result = pcall(function()
+        local MainGui = Player.PlayerGui:FindFirstChild("MainGui")
+        if not MainGui then return nil end
         
-        if env.AutoEncounter.ChainMode then
-            local isMatch = checkMatch(wildDoodle)
-            if isMatch then
-                -- Found target!
-                env.AutoEncounter.Active = false
-                toggleBtn.Text = "🎉 Found!"
-                toggleBtn.BackgroundColor3 = Color3.fromRGB(255, 215, 0)
-            else
-                -- Not match, assume we run or defeat to chain?
-                -- For simple "Auto Encounter", usually we just want to encounter. 
-                -- "Chain Hunter" implies we might want to automate the battle result.
-                -- Since user just asked to "add the script", I'll assume they want the info & basic loop.
-                -- If they want auto-run/auto-kill, that logic would go here.
-                -- For now, just updating display is key.
-            end
-        end
-    end
-end)
-
--- Main Loop
-task.spawn(function()
-    while task.wait(1) do
-        if env.AutoEncounter.Active then
-            local char = player.Character
-            if char and char:FindFirstChild("HumanoidRootPart") then
-                -- Zone detection
-                local zone = nil
-                -- Simple zone detection from nearby objects or predefined list
-                -- (Simplified for compactness, use your original detection logic here)
-                -- For now, relying on user or simple existence check
-                
-                -- Trigger
-                if dudeWhyld then
-                     -- Use last known zone or iterate
-                     -- (Implementing the simple trigger logic from script 1)
-                     local workspace = game:GetService("Workspace")
-                     for _, obj in ipairs(workspace:GetChildren()) do
-                        if obj.Name:match("^%d%d%d_") or zoneEncounters[obj.Name] then
-                            zone = obj.Name
-                            break
-                        end
-                     end
-                     
-                     if zone and zoneEncounters[zone] then
-                         pcall(function()
-                             dudeWhyld:FireServer(zone, zoneEncounters[zone])
-                         end)
-                     end
+        local BattleGui = MainGui:FindFirstChild("MainBattle")
+        if not BattleGui then return nil end
+        
+        local InfoHolder = BattleGui:FindFirstChild("BackBox")
+        if not InfoHolder then return nil end
+        
+        local NameLabel = InfoHolder:FindFirstChild("NameLabel")
+        local LevelLabel = InfoHolder:FindFirstChild("LevelLabel")
+        local Health = InfoHolder:FindFirstChild("Health")
+        if not NameLabel or not LevelLabel or not Health then return nil end
+        
+        local HealthLabel = Health:FindFirstChild("HealthNumber")
+        if not HealthLabel then return nil end
+        
+        local Party = battleData["Player1Party"]
+        if not Party then return nil end
+        
+        local MaxHealth = string.split(HealthLabel.Text,"/")
+        MaxHealth = string.gsub(MaxHealth[2]," ","")
+        MaxHealth = tonumber(MaxHealth)
+        local Level = string.gsub(LevelLabel.Text,"Lv. ","")
+        Level = tonumber(Level)
+        
+        for i,v in pairs(Party) do
+            if v.Stats and v.Stats.hp == MaxHealth then
+                if v.Name == NameLabel.Text or (v.Doodle and v.Doodle.Nickname == NameLabel.Text) then
+                    if v.Level == Level then
+                        return v
+                    end
                 end
             end
-            task.wait(env.AutoEncounter.Delay)
+        end
+        
+        for i,v in pairs(Party) do
+            if v.Name == NameLabel.Text or (v.Doodle and v.Doodle.Nickname == NameLabel.Text) then
+                return v
+            end
+        end
+        
+        return Party[1]
+    end)
+    
+    if success then
+        return result
+    end
+    return nil
+end
+
+local function GetEnemyDoodle()
+    local battleData = GetBattleData()
+    if not battleData then return nil end
+    
+    local success, result = pcall(function()
+        if battleData["Player2Party"] and battleData["Player2Party"][1] then
+            return battleData["Player2Party"][1]
+        end
+        return nil
+    end)
+    
+    if success and result then
+        return result
+    end
+    return nil
+end
+
+local function CheckMatch(wildDoodle)
+    if not wildDoodle then return false, "No Doodle" end
+    
+    local failReasons = {}
+    local hasAnyFilter = false
+    
+    -- Check species
+    if Settings.TargetSpecies ~= "" then
+        hasAnyFilter = true
+        local name = (wildDoodle.Name or wildDoodle.RealName or ""):lower()
+        local target = Settings.TargetSpecies:lower()
+        if not name:find(target, 1, true) then
+            table.insert(failReasons, "Wrong Species")
+        end
+    end
+    
+    -- Check stars (only if user cares about stars)
+    if Settings.MinStars >= 1 then
+        hasAnyFilter = true
+        local stars = wildDoodle.Star or 0
+        if stars ~= Settings.MinStars then
+            table.insert(failReasons, "Wrong Stars (" .. stars .. " ⭐, need exactly " .. Settings.MinStars .. " ⭐)")
+        end
+    end
+    
+    -- Check misprint
+    if Settings.OnlyMisprint then
+        hasAnyFilter = true
+        local isMisprint = wildDoodle.Shiny or (wildDoodle.Color and wildDoodle.Color ~= "Normal")
+        if not isMisprint then
+            table.insert(failReasons, "Not Misprint")
+        end
+    end
+    
+    -- Check hidden trait
+    if Settings.OnlyHiddenTrait then
+        hasAnyFilter = true
+        if not wildDoodle.HiddenTrait then
+            table.insert(failReasons, "No Hidden Trait")
+        end
+    end
+    
+    -- Check specific ability
+    if Settings.TargetAbility ~= "" then
+        hasAnyFilter = true
+        local ability = wildDoodle.Ability or wildDoodle.AbilityName or ""
+        local targetAbility = Settings.TargetAbility:lower()
+        if ability:lower() ~= targetAbility then
+            table.insert(failReasons, "Wrong Ability (" .. ability .. ")")
+        end
+    end
+    
+    -- Check gender
+    if Settings.TargetGender ~= "Any" then
+        hasAnyFilter = true
+        local gender = wildDoodle.Gender or "Unknown"
+        if gender ~= Settings.TargetGender then
+            table.insert(failReasons, "Wrong Gender (" .. gender .. ")")
+        end
+    end
+    
+    -- Check skin
+    if Settings.TargetSkin ~= "Any" then
+        hasAnyFilter = true
+        local skin = wildDoodle.Skin or wildDoodle.SkinName or 0
+        
+        -- Convert skin to a readable format
+        local hasSkin = false
+        local skinDisplay = "Default"
+        
+        if type(skin) == "number" then
+            if skin == 0 then
+                hasSkin = false
+                skinDisplay = "Default"
+            else
+                hasSkin = true
+                skinDisplay = "Skin ID: " .. tostring(skin)
+            end
+        elseif type(skin) == "string" then
+            if skin == "" or skin == "Default" or skin == "Normal" then
+                hasSkin = false
+                skinDisplay = "Default"
+            else
+                hasSkin = true
+                skinDisplay = skin
+            end
+        end
+        
+        if Settings.TargetSkin == "Default" then
+            -- Want default skin only (skin = 0 or "Default")
+            if hasSkin then
+                table.insert(failReasons, "Has Custom Skin (" .. skinDisplay .. "), need Default")
+            end
+        elseif Settings.TargetSkin == "HasSkin" then
+            -- Want ANY custom skin (skin != 0 and NOT "Default")
+            if not hasSkin then
+                table.insert(failReasons, "No Custom Skin (has Default)")
+            end
+        else
+            -- Want a specific skin name
+            local targetSkin = Settings.TargetSkin:lower()
+            if skinDisplay:lower() ~= targetSkin then
+                table.insert(failReasons, "Wrong Skin (" .. skinDisplay .. ", need " .. Settings.TargetSkin .. ")")
+            end
+        end
+    end
+    
+    -- If no filters are set, warn the user
+    if not hasAnyFilter then
+        return false, "⚠️ NO FILTERS SET - Set at least one filter!"
+    end
+    
+    -- ALL conditions must pass
+    if #failReasons > 0 then
+        return false, table.concat(failReasons, ", ")
+    end
+    
+    return true, "✅ ALL CONDITIONS MET!"
+end
+
+local function EndTurn()
+    pcall(function()
+        if getupvalues then
+            local UpValues = getupvalues(ClientModule.Network.BindEvent)
+            for i,v in pairs(UpValues) do
+                if typeof(v) == "table" and v["ForceEnd"] ~= nil then
+                    v.ForceEnd()
+                    break
+                end
+            end
+        end
+    end)
+end
+
+local function HealTeam()
+    pcall(function()
+        print("💚 Healing team at " .. Settings.HealLocation .. "...")
+        local args = {
+            "Heal",
+            Settings.HealLocation
+        }
+        Player:WaitForChild("Remotes"):WaitForChild("PlayerDataEvent"):FireServer(unpack(args))
+        task.wait(1)
+        print("✓ Team healed!")
+    end)
+end
+
+-- Auto Battle Loop
+local lastEncounterID = nil
+
+-- Speed up battles by hiding battle UI elements
+task.spawn(function()
+    while task.wait(0.1) do
+        if Settings.FastBattles and Settings.Enabled then
+            pcall(function()
+                local MainGui = Player.PlayerGui:FindFirstChild("MainGui")
+                if MainGui then
+                    local BattleGui = MainGui:FindFirstChild("MainBattle")
+                    if BattleGui and BattleGui.Visible then
+                        -- Speed up text animations
+                        for _, obj in ipairs(BattleGui:GetDescendants()) do
+                            if obj:IsA("TextLabel") and obj:FindFirstChild("TextSpeed") then
+                                obj.TextSpeed.Value = 0.01
+                            end
+                        end
+                    end
+                end
+            end)
         end
     end
 end)
 
--- Safe Parent
-local success = pcall(function()
-    gui.Parent = game:GetService("CoreGui")
+task.spawn(function()
+    print("✓ Auto Battle Loop started")
+    
+    while true do
+        task.wait(0.5)
+        
+        if not Settings.Enabled then
+            continue
+        end
+        
+        pcall(function()
+            local MainGui = Player.PlayerGui:FindFirstChild("MainGui")
+            if not MainGui then return end
+            
+            local BattleGui = MainGui:FindFirstChild("MainBattle")
+            if not BattleGui or not BattleGui.Visible then 
+                lastEncounterID = nil
+                return 
+            end
+            
+            local BottomBar = BattleGui:FindFirstChild("BottomBar")
+            if not BottomBar then return end
+            
+            local ActionBar = BottomBar:FindFirstChild("Actions")
+            if not ActionBar or not ActionBar.Visible then return end
+            
+            local battleData = GetBattleData()
+            if not battleData then return end
+            
+            local myDoodle = GetOutDoodle()
+            local wildDoodle = GetEnemyDoodle()
+            
+            if not myDoodle then 
+                print("Could not get your doodle")
+                return 
+            end
+            
+            if not wildDoodle then
+                print("Could not get wild doodle")
+                return
+            end
+            
+            local currentID = wildDoodle.ID or tostring(wildDoodle)
+            if lastEncounterID == currentID then
+                return
+            end
+            lastEncounterID = currentID
+            
+            Stats.Encounters = Stats.Encounters + 1
+            
+            local name = wildDoodle.Name or wildDoodle.RealName or "Unknown"
+            local isMisprint = wildDoodle.Shiny or (wildDoodle.Color and wildDoodle.Color ~= "Normal")
+            local gender = wildDoodle.Gender or "Unknown"
+            local ability = wildDoodle.Ability or wildDoodle.AbilityName or "Unknown"
+            
+            -- Process skin value
+            local skinRaw = wildDoodle.Skin or wildDoodle.SkinName or 0
+            local skin = "Default"
+            if type(skinRaw) == "number" then
+                if skinRaw == 0 then
+                    skin = "Default (No Skin)"
+                else
+                    skin = "Skin ID: " .. tostring(skinRaw)
+                end
+            elseif type(skinRaw) == "string" then
+                if skinRaw == "" or skinRaw == "Default" or skinRaw == "Normal" then
+                    skin = "Default (No Skin)"
+                else
+                    skin = skinRaw
+                end
+            end
+            
+            local stars = wildDoodle.Star or 0
+            
+            print(string.format("=== Encounter #%d ===", Stats.Encounters))
+            print(string.format("Species: %s", name))
+            print(string.format("Stars: %d ⭐", stars))
+            print(string.format("Misprint: %s", isMisprint and "YES" or "NO"))
+            print(string.format("Gender: %s", gender))
+            print(string.format("Ability: %s", ability))
+            print(string.format("Skin: %s", skin))
+            if wildDoodle.HiddenTrait then
+                print("Hidden Trait:", wildDoodle.HiddenTrait)
+            end
+            
+            local isMatch, reason = CheckMatch(wildDoodle)
+            
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print("🔍 FILTER CHECK RESULT:")
+            print("Match Status:", isMatch and "✅ PERFECT MATCH" or "❌ NO MATCH")
+            print("Reason:", reason)
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            
+            if isMatch then
+                print("✅ ===== PERFECT MATCH FOUND! =====")
+                print("ALL CONDITIONS MET!")
+                Stats.Found = Stats.Found + 1
+                
+                -- Flash the GUI to alert the player
+                pcall(function()
+                    for i = 1, 3 do
+                        MainFrame.BackgroundColor3 = Color3.fromRGB(50, 200, 50)
+                        task.wait(0.3)
+                        MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+                        task.wait(0.3)
+                    end
+                end)
+                
+                Stats.Chain = Stats.Chain + 1
+                print("🔗 Chain:", Stats.Chain)
+                
+                if not Settings.ChainMode then
+                    Settings.Enabled = false
+                    print("🎉 Target found! Stopping farm (Chain Mode OFF)")
+                    print("⚠️ NOT ATTACKING - Let player catch it!")
+                    return
+                else
+                    print("🎉 Target found! Chain Mode is ON")
+                    print("⚠️ NOT ATTACKING - Let player catch it!")
+                    return
+                end
+            else
+                print("❌ DOES NOT MATCH - Will attack or run")
+                
+                ActionBar.Visible = false
+                
+                if Settings.ChainMode then
+                    local isSameSpecies = false
+                    if Settings.TargetSpecies ~= "" then
+                        local wildName = (wildDoodle.Name or wildDoodle.RealName or ""):lower()
+                        local targetName = Settings.TargetSpecies:lower()
+                        isSameSpecies = wildName:find(targetName, 1, true) ~= nil
+                    end
+                    
+                    if isSameSpecies then
+                        print("✅ Same species but doesn't match filters - attacking to maintain chain!")
+                        Stats.Chain = Stats.Chain + 1
+                        print("🔗 Chain:", Stats.Chain)
+                        
+                        task.wait(Settings.FastBattles and 0.3 or 0.8)
+                        
+                        if myDoodle.Moves and myDoodle.Moves[Settings.SelectedMoveSlot] then
+                            local moveName = myDoodle.Moves[Settings.SelectedMoveSlot].Name
+                            print("🗡️ Using move:", moveName)
+                            
+                            pcall(function()
+                                if ClientModule and ClientModule.Network and ClientModule.Network.post then
+                                    ClientModule.Network:post("BattleAction", {
+                                        [1] = {
+                                            ["Target"] = wildDoodle.ID,
+                                            ["ActionType"] = "Attack",
+                                            ["Action"] = moveName,
+                                            ["User"] = myDoodle.ID,
+                                        }
+                                    })
+                                    print("✓ Attack command sent")
+                                end
+                            end)
+                            
+                            task.wait(Settings.FastBattles and 0.2 or 0.5)
+                            EndTurn()
+                        else
+                            print("⚠️ No move found in slot", Settings.SelectedMoveSlot)
+                        end
+                    else
+                        print("❌ Different species - running and resetting chain!")
+                        Stats.Chain = 0
+                        print("🔗 Chain reset to 0")
+                        
+                        task.wait(Settings.FastBattles and 0.3 or 1)
+                        
+                        -- Try to run using the proper battle system
+                        local success = pcall(function()
+                            if ClientModule and ClientModule.Network and ClientModule.Network.post then
+                                ClientModule.Network:post("BattleAction", {
+                                    [1] = {
+                                        ["Target"] = "RunAway",
+                                        ["ActionType"] = "Run",
+                                        ["User"] = myDoodle.ID,
+                                    }
+                                })
+                                print("✓ Run command sent via Network.post")
+                            end
+                        end)
+                        
+                        if not success then
+                            print("⚠️ Attempting alternate run method...")
+                            task.wait(Settings.FastBattles and 0.1 or 0.3)
+                        end
+                        
+                        task.wait(Settings.FastBattles and 0.2 or 0.5)
+                        EndTurn()
+                    end
+                else
+                    print("🏃 Running from battle (Chain Mode OFF)")
+                    
+                    task.wait(Settings.FastBattles and 0.3 or 1)
+                    
+                    -- Try to run using the proper battle system
+                    local success = pcall(function()
+                        if ClientModule and ClientModule.Network and ClientModule.Network.post then
+                            ClientModule.Network:post("BattleAction", {
+                                [1] = {
+                                    ["Target"] = "RunAway",
+                                    ["ActionType"] = "Run",
+                                    ["User"] = myDoodle.ID,
+                                }
+                            })
+                            print("✓ Run command sent via Network.post")
+                        end
+                    end)
+                    
+                    if not success then
+                        print("⚠️ Attempting alternate run method...")
+                        task.wait(0.3)
+                    end
+                    
+                    task.wait(0.5)
+                    EndTurn()
+                end
+            end
+        end)
+    end
 end)
-if not success then gui.Parent = player.PlayerGui end
+
+-- Create GUI
+print("Creating GUI...")
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "DoodleAutoFarmGui"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 350, 0, 450)
+MainFrame.Position = UDim2.new(0.02, 0, 0.5, -225)
+MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Parent = ScreenGui
+
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 12)
+MainCorner.Parent = MainFrame
+
+-- Title Bar
+local TitleBar = Instance.new("Frame")
+TitleBar.Name = "TitleBar"
+TitleBar.Size = UDim2.new(1, 0, 0, 45)
+TitleBar.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+TitleBar.BorderSizePixel = 0
+TitleBar.Parent = MainFrame
+
+local TitleCorner = Instance.new("UICorner")
+TitleCorner.CornerRadius = UDim.new(0, 12)
+TitleCorner.Parent = TitleBar
+
+local TitleLabel = Instance.new("TextLabel")
+TitleLabel.Size = UDim2.new(1, -50, 1, 0)
+TitleLabel.Position = UDim2.new(0, 15, 0, 0)
+TitleLabel.BackgroundTransparency = 1
+TitleLabel.Text = "🎮 Doodle Auto Farm"
+TitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+TitleLabel.TextSize = 18
+TitleLabel.Font = Enum.Font.GothamBold
+TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+TitleLabel.Parent = TitleBar
+
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 35, 0, 35)
+CloseBtn.Position = UDim2.new(1, -40, 0, 5)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+CloseBtn.Text = "✕"
+CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseBtn.TextSize = 16
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.Parent = TitleBar
+
+local CloseCorner = Instance.new("UICorner")
+CloseCorner.CornerRadius = UDim.new(0, 8)
+CloseCorner.Parent = CloseBtn
+
+CloseBtn.MouseButton1Click:Connect(function()
+    Settings.Enabled = false
+    ScreenGui:Destroy()
+end)
+
+-- Tab Container
+local TabContainer = Instance.new("Frame")
+TabContainer.Size = UDim2.new(1, -20, 0, 40)
+TabContainer.Position = UDim2.new(0, 10, 0, 55)
+TabContainer.BackgroundTransparency = 1
+TabContainer.Parent = MainFrame
+
+local TabLayout = Instance.new("UIListLayout")
+TabLayout.FillDirection = Enum.FillDirection.Horizontal
+TabLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+TabLayout.Padding = UDim.new(0, 8)
+TabLayout.Parent = TabContainer
+
+-- Content Area
+local ContentArea = Instance.new("Frame")
+ContentArea.Size = UDim2.new(1, -20, 1, -110)
+ContentArea.Position = UDim2.new(0, 10, 0, 100)
+ContentArea.BackgroundTransparency = 1
+ContentArea.Parent = MainFrame
+
+-- Tab System
+local currentTab = nil
+local tabs = {}
+
+local function CreateTab(name, icon)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0, 100, 1, 0)
+    btn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+    btn.Text = icon .. " " .. name
+    btn.TextColor3 = Color3.fromRGB(200, 200, 200)
+    btn.TextSize = 13
+    btn.Font = Enum.Font.GothamBold
+    btn.Parent = TabContainer
+    
+    local btnCorner = Instance.new("UICorner")
+    btnCorner.CornerRadius = UDim.new(0, 8)
+    btnCorner.Parent = btn
+    
+    local content = Instance.new("ScrollingFrame")
+    content.Name = name .. "Content"
+    content.Size = UDim2.new(1, 0, 1, 0)
+    content.BackgroundTransparency = 1
+    content.BorderSizePixel = 0
+    content.ScrollBarThickness = 6
+    content.Visible = false
+    content.Parent = ContentArea
+    
+    local layout = Instance.new("UIListLayout")
+    layout.Padding = UDim.new(0, 10)
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Parent = content
+    
+    layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        content.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 10)
+    end)
+    
+    tabs[name] = {button = btn, content = content}
+    
+    btn.MouseButton1Click:Connect(function()
+        for tabName, tab in pairs(tabs) do
+            tab.content.Visible = false
+            tab.button.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+            tab.button.TextColor3 = Color3.fromRGB(200, 200, 200)
+        end
+        
+        content.Visible = true
+        btn.BackgroundColor3 = Color3.fromRGB(75, 150, 255)
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        currentTab = name
+    end)
+    
+    return content
+end
+
+-- Create Tabs
+local mainTab = CreateTab("Main", "⚙️")
+local filtersTab = CreateTab("Filters", "🎯")
+local utilsTab = CreateTab("Utils", "💚")
+
+-- Show first tab by default
+tabs["Main"].button.BackgroundColor3 = Color3.fromRGB(75, 150, 255)
+tabs["Main"].button.TextColor3 = Color3.fromRGB(255, 255, 255)
+tabs["Main"].content.Visible = true
+
+-- Helper Functions for GUI Elements
+local function AddToggle(parent, text, callback)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, 0, 0, 40)
+    frame.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+    frame.BorderSizePixel = 0
+    frame.Parent = parent
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = frame
+    
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -80, 1, 0)
+    label.Position = UDim2.new(0, 15, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.TextSize = 14
+    label.Font = Enum.Font.Gotham
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = frame
+    
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0, 60, 0, 28)
+    btn.Position = UDim2.new(1, -70, 0.5, -14)
+    btn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+    btn.Text = "OFF"
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.TextSize = 12
+    btn.Font = Enum.Font.GothamBold
+    btn.Parent = frame
+    
+    local btnCorner = Instance.new("UICorner")
+    btnCorner.CornerRadius = UDim.new(0, 6)
+    btnCorner.Parent = btn
+    
+    local toggled = false
+    btn.MouseButton1Click:Connect(function()
+        toggled = not toggled
+        btn.BackgroundColor3 = toggled and Color3.fromRGB(50, 200, 50) or Color3.fromRGB(200, 50, 50)
+        btn.Text = toggled and "ON" or "OFF"
+        callback(toggled)
+    end)
+    
+    return btn
+end
+
+local function AddTextInput(parent, placeholder, callback)
+    local box = Instance.new("TextBox")
+    box.Size = UDim2.new(1, 0, 0, 40)
+    box.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+    box.Text = ""
+    box.PlaceholderText = placeholder
+    box.TextColor3 = Color3.fromRGB(255, 255, 255)
+    box.PlaceholderColor3 = Color3.fromRGB(150, 150, 150)
+    box.TextSize = 13
+    box.Font = Enum.Font.Gotham
+    box.ClearTextOnFocus = false
+    box.Parent = parent
+    
+    local padding = Instance.new("UIPadding")
+    padding.PaddingLeft = UDim.new(0, 15)
+    padding.Parent = box
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = box
+    
+    box.FocusLost:Connect(function()
+        callback(box.Text)
+    end)
+    
+    return box
+end
+
+local function AddDropdown(parent, placeholder, list, callback)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, 0, 0, 40)
+    frame.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+    frame.BorderSizePixel = 0
+    frame.Parent = parent
+    frame.ClipsDescendants = false
+    frame.ZIndex = 1
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = frame
+    
+    local searchBox = Instance.new("TextBox")
+    searchBox.Size = UDim2.new(1, -20, 1, 0)
+    searchBox.Position = UDim2.new(0, 15, 0, 0)
+    searchBox.BackgroundTransparency = 1
+    searchBox.Text = ""
+    searchBox.PlaceholderText = placeholder
+    searchBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+    searchBox.PlaceholderColor3 = Color3.fromRGB(150, 150, 150)
+    searchBox.TextSize = 13
+    searchBox.Font = Enum.Font.Gotham
+    searchBox.ClearTextOnFocus = false
+    searchBox.TextXAlignment = Enum.TextXAlignment.Left
+    searchBox.ZIndex = 2
+    searchBox.Parent = frame
+    
+    -- Create dropdown list OUTSIDE the scrolling frame to avoid clipping
+    local dropdownList = Instance.new("ScrollingFrame")
+    dropdownList.Size = UDim2.new(1, 0, 0, 0)
+    dropdownList.Position = UDim2.new(0, 0, 1, 5)
+    dropdownList.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+    dropdownList.BorderSizePixel = 0
+    dropdownList.Visible = false
+    dropdownList.ScrollBarThickness = 4
+    dropdownList.ZIndex = 200  -- Very high ZIndex to appear above everything
+    dropdownList.Parent = ScreenGui  -- Parent to ScreenGui instead of frame
+    
+    local listCorner = Instance.new("UICorner")
+    listCorner.CornerRadius = UDim.new(0, 8)
+    listCorner.Parent = dropdownList
+    
+    local listLayout = Instance.new("UIListLayout")
+    listLayout.Padding = UDim.new(0, 3)
+    listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    listLayout.Parent = dropdownList
+    
+    local function updateList(query)
+        for _, child in ipairs(dropdownList:GetChildren()) do
+            if child:IsA("TextButton") then
+                child:Destroy()
+            end
+        end
+        
+        if query == "" then
+            dropdownList.Visible = false
+            return
+        end
+        
+        local matches = {}
+        query = query:lower()
+        
+        for _, item in ipairs(list) do
+            if item:lower():find(query, 1, true) then
+                table.insert(matches, item)
+                if #matches >= 8 then break end
+            end
+        end
+        
+        if #matches == 0 then
+            dropdownList.Visible = false
+            return
+        end
+        
+        -- Position dropdown relative to the search box in screen space
+        local framePos = frame.AbsolutePosition
+        local frameSize = frame.AbsoluteSize
+        dropdownList.Position = UDim2.new(0, framePos.X, 0, framePos.Y + frameSize.Y + 5)
+        dropdownList.Size = UDim2.new(0, frameSize.X, 0, 0)
+        
+        for _, item in ipairs(matches) do
+            local btn = Instance.new("TextButton")
+            btn.Size = UDim2.new(1, -10, 0, 30)
+            btn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+            btn.Text = item
+            btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            btn.TextSize = 12
+            btn.Font = Enum.Font.Gotham
+            btn.ZIndex = 201
+            btn.Parent = dropdownList
+            
+            local btnCorner = Instance.new("UICorner")
+            btnCorner.CornerRadius = UDim.new(0, 6)
+            btnCorner.Parent = btn
+            
+            btn.MouseButton1Click:Connect(function()
+                searchBox.Text = item
+                dropdownList.Visible = false
+                callback(item)
+            end)
+            
+            btn.MouseEnter:Connect(function()
+                btn.BackgroundColor3 = Color3.fromRGB(55, 55, 65)
+            end)
+            
+            btn.MouseLeave:Connect(function()
+                btn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+            end)
+        end
+        
+        dropdownList.Visible = true
+        local contentHeight = math.min(listLayout.AbsoluteContentSize.Y + 10, 180)
+        dropdownList.Size = UDim2.new(0, frameSize.X, 0, contentHeight)
+        dropdownList.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y + 10)
+    end
+    
+    searchBox:GetPropertyChangedSignal("Text"):Connect(function()
+        updateList(searchBox.Text)
+    end)
+    
+    searchBox.FocusLost:Connect(function()
+        task.wait(0.2)
+        dropdownList.Visible = false
+    end)
+    
+    -- Update position when scrolling
+    parent:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
+        if dropdownList.Visible then
+            local framePos = frame.AbsolutePosition
+            local frameSize = frame.AbsoluteSize
+            dropdownList.Position = UDim2.new(0, framePos.X, 0, framePos.Y + frameSize.Y + 5)
+        end
+    end)
+end
+
+local function AddSlider(parent, text, min, max, default, callback)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, 0, 0, 55)
+    frame.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+    frame.BorderSizePixel = 0
+    frame.Parent = parent
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = frame
+    
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -70, 0, 20)
+    label.Position = UDim2.new(0, 15, 0, 8)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.TextSize = 13
+    label.Font = Enum.Font.Gotham
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = frame
+    
+    local valueLabel = Instance.new("TextLabel")
+    valueLabel.Size = UDim2.new(0, 60, 0, 20)
+    valueLabel.Position = UDim2.new(1, -65, 0, 8)
+    valueLabel.BackgroundTransparency = 1
+    valueLabel.Text = tostring(default or min)
+    valueLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    valueLabel.TextSize = 13
+    valueLabel.Font = Enum.Font.GothamBold
+    valueLabel.Parent = frame
+    
+    local bar = Instance.new("Frame")
+    bar.Size = UDim2.new(1, -30, 0, 8)
+    bar.Position = UDim2.new(0, 15, 1, -18)
+    bar.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+    bar.BorderSizePixel = 0
+    bar.Parent = frame
+    
+    local barCorner = Instance.new("UICorner")
+    barCorner.CornerRadius = UDim.new(0, 4)
+    barCorner.Parent = bar
+    
+    local fill = Instance.new("Frame")
+    local initialPercent = (default - min) / (max - min)
+    fill.Size = UDim2.new(initialPercent, 0, 1, 0)
+    fill.BackgroundColor3 = Color3.fromRGB(75, 150, 255)
+    fill.BorderSizePixel = 0
+    fill.Parent = bar
+    
+    local fillCorner = Instance.new("UICorner")
+    fillCorner.CornerRadius = UDim.new(0, 4)
+    fillCorner.Parent = fill
+    
+    local value = default or min
+    
+    local function update(input)
+        local pos = math.clamp((input.Position.X - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
+        value = math.floor(min + (max - min) * pos)
+        valueLabel.Text = tostring(value)
+        fill.Size = UDim2.new(pos, 0, 1, 0)
+        callback(value)
+    end
+    
+    local dragging = false
+    bar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            update(input)
+        end
+    end)
+    
+    bar.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
+        end
+    end)
+    
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            update(input)
+        end
+    end)
+end
+
+local function AddButtonGroup(parent, label, options, default, callback)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, 0, 0, 45)
+    frame.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+    frame.BorderSizePixel = 0
+    frame.Parent = parent
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = frame
+    
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(0.4, 0, 1, 0)
+    lbl.Position = UDim2.new(0, 15, 0, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = label
+    lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+    lbl.TextSize = 13
+    lbl.Font = Enum.Font.Gotham
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Parent = frame
+    
+    local buttons = {}
+    local btnWidth = (1 - 0.45) / #options
+    
+    for i, option in ipairs(options) do
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(btnWidth - 0.02, 0, 0, 28)
+        btn.Position = UDim2.new(0.42 + (i-1) * btnWidth, 0, 0.5, -14)
+        btn.BackgroundColor3 = (option == default) and Color3.fromRGB(75, 150, 255) or Color3.fromRGB(50, 50, 60)
+        btn.Text = option
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        btn.TextSize = 11
+        btn.Font = Enum.Font.GothamBold
+        btn.Parent = frame
+        
+        local btnCorner = Instance.new("UICorner")
+        btnCorner.CornerRadius = UDim.new(0, 6)
+        btnCorner.Parent = btn
+        
+        buttons[option] = btn
+        
+        btn.MouseButton1Click:Connect(function()
+            callback(option)
+            for opt, b in pairs(buttons) do
+                if opt == option then
+                    b.BackgroundColor3 = Color3.fromRGB(75, 150, 255)
+                else
+                    b.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+                end
+            end
+        end)
+    end
+end
+
+-- MAIN TAB
+AddToggle(mainTab, "Start Farming", function(value)
+    Settings.Enabled = value
+    if value then
+        Stats.Encounters = 0
+        Stats.Chain = 0
+        print("==============================================")
+        print("🎮 FARMING ENABLED")
+        print("Chain Mode:", Settings.ChainMode and "ON (Will attack same species)" or "OFF (Will run from all)")
+        print("Move Slot:", Settings.SelectedMoveSlot)
+        print("Encounter Delay:", Settings.EncounterDelay .. "s")
+        print("==============================================")
+    else
+        print("❌ FARMING DISABLED")
+    end
+end)
+
+AddToggle(mainTab, "Chain Mode (Kill/Run)", function(value)
+    Settings.ChainMode = value
+    print("Chain Mode:", value and "ENABLED - Will kill same species, run from others" or "DISABLED - Will run from all")
+end)
+
+AddSlider(mainTab, "Move Slot", 1, 4, 1, function(value)
+    Settings.SelectedMoveSlot = value
+    print("Move Slot set to:", value, "- This move will be used in Chain Mode")
+end)
+
+-- Stats Display
+local statsLabel = Instance.new("TextLabel")
+statsLabel.Size = UDim2.new(1, 0, 0, 70)
+statsLabel.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+statsLabel.BorderSizePixel = 0
+statsLabel.Text = "Encounters: 0\nChain: 0\nFound: 0"
+statsLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+statsLabel.TextSize = 14
+statsLabel.Font = Enum.Font.GothamBold
+statsLabel.Parent = mainTab
+
+local statsCorner = Instance.new("UICorner")
+statsCorner.CornerRadius = UDim.new(0, 8)
+statsCorner.Parent = statsLabel
+
+-- Reset Stats Button
+local resetBtn = Instance.new("TextButton")
+resetBtn.Size = UDim2.new(1, 0, 0, 35)
+resetBtn.BackgroundColor3 = Color3.fromRGB(180, 100, 50)
+resetBtn.Text = "🔄 Reset Stats"
+resetBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+resetBtn.TextSize = 13
+resetBtn.Font = Enum.Font.GothamBold
+resetBtn.Parent = mainTab
+
+local resetCorner = Instance.new("UICorner")
+resetCorner.CornerRadius = UDim.new(0, 8)
+resetCorner.Parent = resetBtn
+
+resetBtn.MouseButton1Click:Connect(function()
+    Stats.Encounters = 0
+    Stats.Chain = 0
+    Stats.Found = 0
+    print("📊 Stats reset!")
+end)
+
+task.spawn(function()
+    while task.wait(1) do
+        if statsLabel then
+            statsLabel.Text = string.format("Encounters: %d\nChain: %d\nFound: %d", 
+                Stats.Encounters, Stats.Chain, Stats.Found)
+        end
+    end
+end)
+
+-- FILTERS TAB
+
+-- Active Filters Display
+local activeFiltersLabel = Instance.new("TextLabel")
+activeFiltersLabel.Size = UDim2.new(1, 0, 0, 60)
+activeFiltersLabel.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
+activeFiltersLabel.BorderSizePixel = 0
+activeFiltersLabel.Text = "🎯 ACTIVE FILTERS:\nNone - will catch any Doodle"
+activeFiltersLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+activeFiltersLabel.TextSize = 11
+activeFiltersLabel.Font = Enum.Font.Gotham
+activeFiltersLabel.TextWrapped = true
+activeFiltersLabel.TextYAlignment = Enum.TextYAlignment.Top
+activeFiltersLabel.Parent = filtersTab
+
+local filterPadding = Instance.new("UIPadding")
+filterPadding.PaddingLeft = UDim.new(0, 10)
+filterPadding.PaddingRight = UDim.new(0, 10)
+filterPadding.PaddingTop = UDim.new(0, 8)
+filterPadding.PaddingBottom = UDim.new(0, 8)
+filterPadding.Parent = activeFiltersLabel
+
+local filterCorner = Instance.new("UICorner")
+filterCorner.CornerRadius = UDim.new(0, 8)
+filterCorner.Parent = activeFiltersLabel
+
+local function UpdateActiveFilters()
+    local filters = {}
+    if Settings.TargetSpecies ~= "" then table.insert(filters, "Species: " .. Settings.TargetSpecies) end
+    if Settings.MinStars >= 1 then table.insert(filters, "Exact Stars: " .. Settings.MinStars .. "⭐") end
+    if Settings.OnlyMisprint then table.insert(filters, "Misprint Only") end
+    if Settings.OnlyHiddenTrait then table.insert(filters, "Hidden Trait Only") end
+    if Settings.TargetAbility ~= "" then table.insert(filters, "Ability: " .. Settings.TargetAbility) end
+    if Settings.TargetGender ~= "Any" then table.insert(filters, "Gender: " .. Settings.TargetGender) end
+    if Settings.TargetSkin ~= "Any" then table.insert(filters, "Skin: " .. Settings.TargetSkin) end
+    
+    if #filters == 0 then
+        activeFiltersLabel.Text = "🎯 ACTIVE FILTERS:\nNone - Set filters or script won't stop!"
+        activeFiltersLabel.BackgroundColor3 = Color3.fromRGB(150, 50, 50)
+    else
+        activeFiltersLabel.Text = "🎯 ACTIVE FILTERS (ALL must match):\n" .. table.concat(filters, ", ")
+        activeFiltersLabel.BackgroundColor3 = Color3.fromRGB(60, 100, 60)
+    end
+end
+
+AddDropdown(filtersTab, "🔍 Search Doodle Name...", DoodleNames, function(text)
+    Settings.TargetSpecies = text
+    print("Target:", text == "" and "Any" or text)
+    UpdateActiveFilters()
+end)
+
+AddSlider(filtersTab, "Exact Stars ⭐ (Any/1-6)", -1, 6, -1, function(value)
+    Settings.MinStars = value
+    if value == -1 then
+        print("Stars: Any (don't care)")
+    else
+        print("Exact Stars:", value, "⭐ ONLY")
+    end
+    UpdateActiveFilters()
+end)
+
+AddToggle(filtersTab, "Only Misprint", function(value)
+    Settings.OnlyMisprint = value
+    UpdateActiveFilters()
+end)
+
+AddToggle(filtersTab, "Only Hidden Trait", function(value)
+    Settings.OnlyHiddenTrait = value
+    UpdateActiveFilters()
+end)
+
+AddTextInput(filtersTab, "Target Ability (exact name)", function(text)
+    Settings.TargetAbility = text
+    print("Target Ability:", text == "" and "Any" or text)
+    UpdateActiveFilters()
+end)
+
+AddButtonGroup(filtersTab, "Gender:", {"Any", "Male", "Female"}, "Any", function(value)
+    Settings.TargetGender = value
+    print("Target Gender:", value)
+    UpdateActiveFilters()
+end)
+
+AddButtonGroup(filtersTab, "Skin:", {"Any", "Default", "HasSkin"}, "Any", function(value)
+    Settings.TargetSkin = value
+    print("Target Skin:", value)
+    UpdateActiveFilters()
+end)
+
+-- Custom skin input (only shown when needed)
+local customSkinInput = AddTextInput(filtersTab, "Custom Skin Name (exact, optional)", function(text)
+    if text ~= "" then
+        Settings.TargetSkin = text
+        print("Custom Target Skin:", text)
+        UpdateActiveFilters()
+    end
+end)
+
+-- UTILS TAB
+
+-- Info Box
+local infoBox = Instance.new("TextLabel")
+infoBox.Size = UDim2.new(1, 0, 0, 100)
+infoBox.BackgroundColor3 = Color3.fromRGB(45, 100, 180)
+infoBox.BorderSizePixel = 0
+infoBox.Text = "ℹ️ HOW TO USE:\n1. Stand in tall grass\n2. Set your filters in Filters tab\n3. Enable Start Farming\n4. ALL filter conditions must match to stop!\n\nExample: If you want a skin + 5 stars,\nit will ONLY stop for 5+ star WITH that skin!"
+infoBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+infoBox.TextSize = 10
+infoBox.Font = Enum.Font.Gotham
+infoBox.TextWrapped = true
+infoBox.TextYAlignment = Enum.TextYAlignment.Top
+infoBox.Parent = utilsTab
+
+local infoPadding = Instance.new("UIPadding")
+infoPadding.PaddingLeft = UDim.new(0, 10)
+infoPadding.PaddingRight = UDim.new(0, 10)
+infoPadding.PaddingTop = UDim.new(0, 10)
+infoPadding.PaddingBottom = UDim.new(0, 10)
+infoPadding.Parent = infoBox
+
+local infoCorner = Instance.new("UICorner")
+infoCorner.CornerRadius = UDim.new(0, 8)
+infoCorner.Parent = infoBox
+
+AddButtonGroup(utilsTab, "Heal Loc:", {"Academy", "Lakewood", "Sweetsville"}, "Academy", function(value)
+    Settings.HealLocation = value
+    print("Heal Location:", value)
+end)
+
+local healBtn = Instance.new("TextButton")
+healBtn.Size = UDim2.new(1, 0, 0, 45)
+healBtn.BackgroundColor3 = Color3.fromRGB(50, 200, 50)
+healBtn.Text = "💚 HEAL TEAM NOW"
+healBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+healBtn.TextSize = 14
+healBtn.Font = Enum.Font.GothamBold
+healBtn.Parent = utilsTab
+
+local healBtnCorner = Instance.new("UICorner")
+healBtnCorner.CornerRadius = UDim.new(0, 8)
+healBtnCorner.Parent = healBtn
+
+healBtn.MouseButton1Click:Connect(function()
+    HealTeam()
+end)
+
+AddSlider(utilsTab, "Encounter Delay (s)", 1, 5, 2, function(value)
+    Settings.EncounterDelay = value
+end)
+
+-- Fast Battles Toggle
+AddToggle(utilsTab, "Fast Battles (Speed Up)", function(value)
+    Settings.FastBattles = value
+    print("Fast Battles:", value and "ENABLED - Battles will be faster" or "DISABLED - Normal speed")
+end)
+
+-- Make draggable
+local dragging, dragInput, dragStart, startPos
+
+local function updateDrag(input)
+    local delta = input.Position - dragStart
+    MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+end
+
+TitleBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = MainFrame.Position
+        
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+TitleBar.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        updateDrag(input)
+    end
+end)
+
+-- Parent GUI
+ScreenGui.Parent = Player:WaitForChild("PlayerGui")
+
+print("✓ GUI created")
+
+-- Encounter Loop
+task.spawn(function()
+    print("✓ Encounter loop started")
+    local lastZone = nil
+    
+    while task.wait(1) do
+        if Settings.Enabled then
+            local char = Player.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                local zone = nil
+                
+                for _, obj in ipairs(Workspace:GetChildren()) do
+                    if obj.Name:match("^%d%d%d_") or zoneEncounters[obj.Name] then
+                        zone = obj.Name
+                        break
+                    end
+                end
+                
+                if zone ~= lastZone then
+                    if zone then
+                        print("📍 Zone detected:", zone)
+                        if zoneEncounters[zone] then
+                            print("✓ Zone is valid for encounters")
+                        else
+                            if zone:match("^%d%d%d_") then
+                                print("✓ Auto-adding zone to encounter list")
+                                zoneEncounters[zone] = "WildGrass"
+                            else
+                                warn("⚠️ Zone not in encounter list")
+                            end
+                        end
+                    else
+                        print("⚠️ No zone detected")
+                    end
+                    lastZone = zone
+                end
+                
+                if zone and zoneEncounters[zone] then
+                    pcall(function()
+                        DudeWhyld:FireServer(zone, zoneEncounters[zone])
+                    end)
+                    task.wait(Settings.EncounterDelay)
+                else
+                    task.wait(2)
+                end
+            end
+        end
+    end
+end)
+
+-- Disable idle kick
+pcall(function()
+    if getconnections then
+        for _, connection in pairs(getconnections(Player.Idled)) do
+            connection:Disable()
+        end
+    end
+end)
+
+print("✅ Auto Farm Loaded!")
+print("Stand in grass and press Start Farming!")
+print("Script will only stop for Doodles that match ALL your filters!")
