@@ -311,10 +311,12 @@ local function CheckMatch(wildDoodle)
                 table.insert(failReasons, "Has Skin (" .. skin .. ")")
             end
         elseif Settings.TargetSkin == "HasSkin" then
-            if skin == "Default" or skin == "" then
-                table.insert(failReasons, "No Skin")
+            -- HasSkin means ANY skin that is NOT default
+            if skin == "Default" or skin == "" or skin == "Normal" then
+                table.insert(failReasons, "No Custom Skin (has default)")
             end
         else
+            -- Specific skin name
             local targetSkin = Settings.TargetSkin:lower()
             if skin:lower() ~= targetSkin then
                 table.insert(failReasons, "Wrong Skin (" .. skin .. ")")
@@ -450,16 +452,19 @@ task.spawn(function()
                     end
                 end)
                 
+                Stats.Chain = Stats.Chain + 1
+                print("🔗 Chain:", Stats.Chain)
+                
                 if not Settings.ChainMode then
                     Settings.Enabled = false
-                    print("🎉 Target found! Stopping farm.")
+                    print("🎉 Target found! Stopping farm (Chain Mode OFF)")
+                    print("⚠️ NOT ATTACKING - Let player catch it!")
+                    return
                 else
-                    Stats.Chain = Stats.Chain + 1
-                    print("Chain continued:", Stats.Chain)
+                    print("🎉 Target found! Chain Mode is ON")
+                    print("⚠️ NOT ATTACKING - Let player catch it!")
+                    return
                 end
-                
-                print("Not running - let player catch it!")
-                return
             else
                 print("❌ No match -", reason)
                 
@@ -474,10 +479,11 @@ task.spawn(function()
                     end
                     
                     if isSameSpecies then
-                        print("✅ Same species - attacking to chain!")
+                        print("✅ Same species but doesn't match filters - attacking to maintain chain!")
                         Stats.Chain = Stats.Chain + 1
+                        print("🔗 Chain:", Stats.Chain)
                         
-                        task.wait(0.3)
+                        task.wait(0.8)
                         
                         if myDoodle.Moves and myDoodle.Moves[Settings.SelectedMoveSlot] then
                             local moveName = myDoodle.Moves[Settings.SelectedMoveSlot].Name
@@ -492,16 +498,17 @@ task.spawn(function()
                                 })
                             end)
                             
-                            task.wait(0.2)
+                            task.wait(0.5)
                             EndTurn()
                         else
                             print("⚠️ No move found in slot", Settings.SelectedMoveSlot)
                         end
                     else
-                        print("❌ Different species - running!")
+                        print("❌ Different species - running and resetting chain!")
                         Stats.Chain = 0
+                        print("🔗 Chain reset to 0")
                         
-                        task.wait(0.3)
+                        task.wait(0.8)
                         
                         pcall(function()
                             BattleAction:FireServer({
@@ -511,13 +518,13 @@ task.spawn(function()
                             })
                         end)
                         
-                        task.wait(0.2)
+                        task.wait(0.5)
                         EndTurn()
                     end
                 else
-                    print("🏃 Running from battle")
+                    print("🏃 Running from battle (Chain Mode OFF)")
                     
-                    task.wait(0.3)
+                    task.wait(0.8)
                     
                     pcall(function()
                         BattleAction:FireServer({
@@ -527,7 +534,7 @@ task.spawn(function()
                         })
                     end)
                     
-                    task.wait(0.2)
+                    task.wait(0.5)
                     EndTurn()
                 end
             end
