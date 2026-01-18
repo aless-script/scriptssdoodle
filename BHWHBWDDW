@@ -562,7 +562,7 @@ task.spawn(function()
                         
                         -- KEEP ATTACKING UNTIL DEFEATED
                         repeat
-                            task.wait(0.3)
+                            task.wait(0.8)
                             
                             local currentMyDoodle = GetOutDoodle()
                             local currentEnemyDoodle = GetEnemyDoodle()
@@ -591,7 +591,13 @@ task.spawn(function()
                                 
                                 task.wait(0.5)
                                 EndTurn()
-                                task.wait(1.5)
+                                
+                                -- Wait longer for battle to process
+                                if Settings.FastForward then
+                                    task.wait(1.5)
+                                else
+                                    task.wait(2.5)
+                                end
                             else
                                 print("⚠️ No move found in slot", Settings.SelectedMoveSlot)
                                 break
@@ -612,7 +618,7 @@ task.spawn(function()
                                 -- Auto heal after every defeat
                                 if Settings.AutoHealEvery1 then
                                     print("💚 Auto healing after defeat...")
-                                    task.wait(1)
+                                    task.wait(1.5)
                                     HealTeam()
                                 end
                                 break
@@ -1464,9 +1470,26 @@ print("✓ GUI created")
 task.spawn(function()
     print("✓ Encounter loop started")
     local lastZone = nil
+    local isInBattle = false
     
-    while task.wait(0.5) do
+    while task.wait(1) do
         if Settings.Enabled then
+            -- Don't spam encounters if already in battle
+            local MainGui = Player.PlayerGui:FindFirstChild("MainGui")
+            if MainGui then
+                local BattleGui = MainGui:FindFirstChild("MainBattle")
+                if BattleGui and BattleGui.Visible then
+                    isInBattle = true
+                    continue
+                else
+                    if isInBattle then
+                        -- Just left battle, wait a bit before next encounter
+                        task.wait(1.5)
+                        isInBattle = false
+                    end
+                end
+            end
+            
             local char = Player.Character
             if char and char:FindFirstChild("HumanoidRootPart") then
                 local zone = nil
@@ -1502,14 +1525,14 @@ task.spawn(function()
                         DudeWhyld:FireServer(zone, zoneEncounters[zone])
                     end)
                     
-                    -- Faster encounter delay when fast forward is on
-                    if Settings.FastForward then
-                        task.wait(math.max(0.5, Settings.EncounterDelay - 1))
-                    else
-                        task.wait(Settings.EncounterDelay)
+                    -- Wait for encounter to start
+                    local waitTime = Settings.EncounterDelay
+                    if Settings.FastForward and waitTime > 1.5 then
+                        waitTime = 1.5
                     end
+                    task.wait(waitTime)
                 else
-                    task.wait(1)
+                    task.wait(2)
                 end
             end
         end
