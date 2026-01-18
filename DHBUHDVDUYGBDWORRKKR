@@ -1099,13 +1099,18 @@ local function AddDropdown(parent, placeholder, list, callback)
         dropdownList.Visible = false
     end)
     
-    parent:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
-        if dropdownList.Visible then
+    -- Update position when parent scrolls
+    local function updateDropdownPosition()
+        if dropdownList.Visible and frame.Parent then
             local framePos = frame.AbsolutePosition
             local frameSize = frame.AbsoluteSize
             dropdownList.Position = UDim2.new(0, framePos.X, 0, framePos.Y + frameSize.Y + 5)
         end
-    end)
+    end
+    
+    parent:GetPropertyChangedSignal("CanvasPosition"):Connect(updateDropdownPosition)
+    
+    return frame
 end
 
 local function AddSlider(parent, text, min, max, default, callback)
@@ -1403,15 +1408,17 @@ local skinButtonGroup = nil
 local skinDropdown = nil
 
 local function UpdateSkinOptions(doodleName)
-    -- Remove old skin UI elements
-    if skinButtonGroup then
-        skinButtonGroup:Destroy()
+    -- Remove old skin UI elements safely
+    if skinButtonGroup and skinButtonGroup.Parent then
+        pcall(function()
+            skinButtonGroup:Destroy()
+        end)
         skinButtonGroup = nil
     end
-    if skinDropdown then
-        if skinDropdown.Parent then
-            skinDropdown.Parent:Destroy()
-        end
+    if skinDropdown and skinDropdown.Parent then
+        pcall(function()
+            skinDropdown:Destroy()
+        end)
         skinDropdown = nil
     end
     
@@ -1616,11 +1623,27 @@ local function UpdateSkinOptions(doodleName)
             dropdownList.Visible = false
         end)
         
-        filtersTab:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
-            if dropdownList.Visible then
-                local framePos = dropdownFrame.AbsolutePosition
-                local frameSize = dropdownFrame.AbsoluteSize
-                dropdownList.Position = UDim2.new(0, framePos.X, 0, framePos.Y + frameSize.Y + 5)
+        -- Update dropdown position when scrolling - with safety check
+        local scrollConnection
+        scrollConnection = filtersTab:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
+            if dropdownList.Visible and dropdownFrame.Parent then
+                pcall(function()
+                    local framePos = dropdownFrame.AbsolutePosition
+                    local frameSize = dropdownFrame.AbsoluteSize
+                    dropdownList.Position = UDim2.new(0, framePos.X, 0, framePos.Y + frameSize.Y + 5)
+                end)
+            end
+        end)
+        
+        -- Clean up connection when dropdown is destroyed
+        dropdownFrame.Destroying:Connect(function()
+            if scrollConnection then
+                scrollConnection:Disconnect()
+            end
+            if dropdownList then
+                pcall(function()
+                    dropdownList:Destroy()
+                end)
             end
         end)
         
@@ -1703,7 +1726,7 @@ local infoBox = Instance.new("TextLabel")
 infoBox.Size = UDim2.new(1, 0, 0, 120)
 infoBox.BackgroundColor3 = Color3.fromRGB(45, 100, 180)
 infoBox.BorderSizePixel = 0
-infoBox.Text = "ℹ️ ENHANCED FEATURES:\n• Fast Forward: 2x battle speed\n• Skip Animations: Faster battle start\n• Keep Attacking: Defeats enemies fully\n• Auto Heal: Heals after each win\n• Faster Encounters: Reduced delays\n\n1. Stand in tall grass\n2. Set filters in Filters tab\n3. Enable all speed options\n4. Press Start Farming!"
+infoBox.Text = "ℹ️ ENHANCED FEATURES:\n• Fast Forward: Speeds up ALL animations\n• Encounter Intro: 85% faster transition\n• Skip Animations: Faster battle start\n• Keep Attacking: Defeats enemies fully\n• Auto Heal: Heals after each win\n• Faster Encounters: Reduced delays\n\n1. Stand in tall grass\n2. Set filters in Filters tab\n3. Enable all speed options\n4. Press Start Farming!"
 infoBox.TextColor3 = Color3.fromRGB(255, 255, 255)
 infoBox.TextSize = 10
 infoBox.Font = Enum.Font.Gotham
