@@ -1,5 +1,5 @@
--- Doodle World Auto Encounter - ENHANCED VERSION
-print("Loading Enhanced Auto Farm...")
+-- Doodle World Auto Encounter - ENHANCED VERSION WITH AUTO CATCH
+print("Loading Enhanced Auto Farm with Auto Catch...")
 
 -- Wait for game
 repeat task.wait() until game:IsLoaded()
@@ -108,58 +108,6 @@ if DoodleInfo then
     print("✓ Loaded", #DoodleNames, "Doodles")
 end
 
--- Load Skins Database
-local Skins = nil
-local SkinsModule = Database:FindFirstChild("Skins")
-if SkinsModule then
-    local success, err = pcall(function()
-        Skins = require(SkinsModule)
-    end)
-    
-    if success and Skins and Skins.Sprites then
-        print("✓ Skins database loaded")
-    else
-        warn("⚠️ Could not load Skins module:", err)
-    end
-else
-    warn("⚠️ Skins module not found")
-end
-
--- Function to get skins for a specific doodle
-local function GetSkinsForDoodle(doodleName)
-    local skinList = {"Any", "Default", "HasSkin"}
-    
-    if not Skins or not Skins.Sprites then
-        return skinList
-    end
-    
-    if doodleName == "" or doodleName == "None" then
-        return skinList
-    end
-    
-    -- Get skins for this specific doodle
-    if Skins.Sprites[doodleName] then
-        for _, skinData in pairs(Skins.Sprites[doodleName]) do
-            if skinData.Name and not table.find(skinList, skinData.Name) then
-                table.insert(skinList, skinData.Name)
-            end
-        end
-        
-        -- Sort keeping Any, Default, HasSkin at top
-        table.sort(skinList, function(a, b)
-            if a == "Any" then return true end
-            if b == "Any" then return false end
-            if a == "Default" then return true end
-            if b == "Default" then return false end
-            if a == "HasSkin" then return true end
-            if b == "HasSkin" then return false end
-            return a < b
-        end)
-    end
-    
-    return skinList
-end
-
 -- Zone Map
 local zoneEncounters = {
     ["025_Sweetsville"] = "WildGrass",
@@ -202,14 +150,18 @@ local Settings = {
     FastForward = true,
     KeepAttacking = true,
     AutoHealEvery1 = true,
-    SkipAnimations = true
+    SkipAnimations = true,
+    AutoCatch = false,
+    CatchBallType = "Disc",
+    AutoCatchOnMatch = true
 }
 
 local Stats = {
     Encounters = 0,
     Chain = 0,
     Found = 0,
-    Defeats = 0
+    Defeats = 0,
+    Caught = 0
 }
 
 -- Helper Functions
@@ -422,33 +374,58 @@ end
 local function HealTeam()
     pcall(function()
         print("💚 Healing team at " .. Settings.HealLocation .. "...")
-        
-        -- Wait for battle to fully end before healing
-        local MainGui = Player.PlayerGui:FindFirstChild("MainGui")
-        if MainGui then
-            local BattleGui = MainGui:FindFirstChild("MainBattle")
-            if BattleGui and BattleGui.Visible then
-                print("⏳ Waiting for battle GUI to close...")
-                local timeout = 0
-                while BattleGui.Visible and timeout < 50 do
-                    task.wait(0.1)
-                    timeout = timeout + 1
-                end
-                task.wait(0.5)
-            end
-        end
-        
         local args = {
             "Heal",
             Settings.HealLocation
         }
         Player:WaitForChild("Remotes"):WaitForChild("PlayerDataEvent"):FireServer(unpack(args))
-        task.wait(1.5)
+        task.wait(1)
         print("✓ Team healed!")
     end)
 end
 
--- Speed up battle function (like script 2)
+local function ThrowCaptureDisc(wildDoodle)
+    if not wildDoodle then return false end
+    
+    local success = pcall(function()
+        print("🎯 Attempting to catch with " .. Settings.CatchBallType .. "...")
+        
+        local myDoodle = GetOutDoodle()
+        if not myDoodle then
+            warn("Could not get player doodle for catch")
+            return
+        end
+        
+        if ClientModule and ClientModule.Network and ClientModule.Network.post then
+            ClientModule.Network:post("BattleAction", {
+                [1] = {
+                    ["Target"] = wildDoodle.ID,
+                    ["ActionType"] = "Item",
+                    ["Action"] = Settings.CatchBallType,
+                    ["User"] = myDoodle.ID,
+                }
+            })
+            print("✓ Capture disc thrown!")
+            
+            task.wait(0.5)
+            EndTurn()
+            
+            -- Wait for catch animation
+            if Settings.FastForward then
+                task.wait(2)
+            else
+                task.wait(3)
+            end
+            
+            Stats.Caught = Stats.Caught + 1
+            print("✅ Catch attempt completed! Total caught:", Stats.Caught)
+        end
+    end)
+    
+    return success
+end
+
+-- Speed up battle function
 if ClientModule and ClientModule.Utilities then
     local originalHalt = ClientModule.Utilities.Halt
     ClientModule.Utilities.Halt = function(ToWait)
@@ -471,12 +448,26 @@ if ClientModule and ClientModule.Utilities then
     end
 end
 
--- Speed up camera zoom
+-- Speed up camera zoom for encounter start
 if ClientModule and ClientModule.Camera then
     ClientModule.Camera.Zoom = function()
-        if Settings.FastForward and Settings.Enabled then
+        if Settings.SkipAnimations and Settings.Enabled then
+            -- Instantly set FOV instead of animating
+            game.Workspace.CurrentCamera.FieldOfView = 10
+            task.wait(0.01)
             return
         end
+        
+        if Settings.FastForward and Settings.Enabled then
+            -- Super fast zoom
+            game.Workspace.CurrentCamera.FieldOfView = 120
+            task.wait(0.01)
+            game.Workspace.CurrentCamera.FieldOfView = 10
+            task.wait(0.01)
+            return
+        end
+        
+        -- Normal zoom
         for i = 70, 120, 2 do
             game.Workspace.CurrentCamera.FieldOfView = i
             task.wait(0.03)
@@ -600,18 +591,32 @@ task.spawn(function()
                 Stats.Chain = Stats.Chain + 1
                 print("🔗 Chain:", Stats.Chain)
                 
-                if not Settings.ChainMode then
-                    Settings.Enabled = false
-                    print("🎉 Target found! Stopping farm (Chain Mode OFF)")
-                    print("⚠️ NOT ATTACKING - Let player catch it!")
-                    return
+                -- Auto Catch if enabled
+                if Settings.AutoCatch and Settings.AutoCatchOnMatch then
+                    ActionBar.Visible = false
+                    print("🎯 AUTO CATCH ENABLED - Attempting to catch...")
+                    ThrowCaptureDisc(wildDoodle)
+                    
+                    if not Settings.ChainMode then
+                        Settings.Enabled = false
+                        print("🎉 Target caught! Stopping farm (Chain Mode OFF)")
+                    else
+                        print("🎉 Target caught! Chain Mode is ON - continuing...")
+                    end
                 else
-                    print("🎉 Target found! Chain Mode is ON")
-                    print("⚠️ NOT ATTACKING - Let player catch it!")
-                    return
+                    if not Settings.ChainMode then
+                        Settings.Enabled = false
+                        print("🎉 Target found! Stopping farm (Chain Mode OFF)")
+                        print("⚠️ NOT ATTACKING - Let player catch it!")
+                        return
+                    else
+                        print("🎉 Target found! Chain Mode is ON")
+                        print("⚠️ NOT ATTACKING - Let player catch it!")
+                        return
+                    end
                 end
             else
-                print("❌ DOES NOT MATCH - Will attack")
+                print("❌ DOES NOT MATCH - Will attack/run")
                 
                 ActionBar.Visible = false
                 
@@ -660,7 +665,6 @@ task.spawn(function()
                                 task.wait(0.5)
                                 EndTurn()
                                 
-                                -- Wait longer for battle to process
                                 if Settings.FastForward then
                                     task.wait(1.5)
                                 else
@@ -671,7 +675,6 @@ task.spawn(function()
                                 break
                             end
                             
-                            -- Check if battle is still active
                             local stillInBattle = false
                             pcall(function()
                                 if BattleGui.Visible and GetBattleData() then
@@ -683,14 +686,10 @@ task.spawn(function()
                                 print("✅ Enemy defeated!")
                                 Stats.Defeats = Stats.Defeats + 1
                                 
-                                -- Wait for battle to fully close
-                                task.wait(2)
-                                
-                                -- Auto heal after every defeat
                                 if Settings.AutoHealEvery1 then
                                     print("💚 Auto healing after defeat...")
+                                    task.wait(1.5)
                                     HealTeam()
-                                    task.wait(1)
                                 end
                                 break
                             end
@@ -702,7 +701,7 @@ task.spawn(function()
                         Stats.Chain = 0
                         print("🔗 Chain reset to 0")
                         
-                        task.wait(1)
+                        task.wait(0.5)
                         
                         pcall(function()
                             if ClientModule and ClientModule.Network and ClientModule.Network.post then
@@ -719,14 +718,11 @@ task.spawn(function()
                         
                         task.wait(0.5)
                         EndTurn()
-                        
-                        -- Wait for battle to close after running
-                        task.wait(2)
                     end
                 else
                     print("🏃 Running from battle (Chain Mode OFF)")
                     
-                    task.wait(1)
+                    task.wait(0.5)
                     
                     pcall(function()
                         if ClientModule and ClientModule.Network and ClientModule.Network.post then
@@ -743,9 +739,6 @@ task.spawn(function()
                     
                     task.wait(0.5)
                     EndTurn()
-                    
-                    -- Wait for battle to close after running
-                    task.wait(2)
                 end
             end
         end)
@@ -762,8 +755,8 @@ ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 350, 0, 480)
-MainFrame.Position = UDim2.new(0.02, 0, 0.5, -240)
+MainFrame.Size = UDim2.new(0, 350, 0, 520)
+MainFrame.Position = UDim2.new(0.02, 0, 0.5, -260)
 MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -789,7 +782,7 @@ local TitleLabel = Instance.new("TextLabel")
 TitleLabel.Size = UDim2.new(1, -50, 1, 0)
 TitleLabel.Position = UDim2.new(0, 15, 0, 0)
 TitleLabel.BackgroundTransparency = 1
-TitleLabel.Text = "🎮 Doodle Auto Farm ENHANCED"
+TitleLabel.Text = "🎮 Doodle Auto Farm + Catch"
 TitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 TitleLabel.TextSize = 17
 TitleLabel.Font = Enum.Font.GothamBold
@@ -1099,18 +1092,13 @@ local function AddDropdown(parent, placeholder, list, callback)
         dropdownList.Visible = false
     end)
     
-    -- Update position when parent scrolls
-    local function updateDropdownPosition()
-        if dropdownList.Visible and frame.Parent then
+    parent:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
+        if dropdownList.Visible then
             local framePos = frame.AbsolutePosition
             local frameSize = frame.AbsoluteSize
             dropdownList.Position = UDim2.new(0, framePos.X, 0, framePos.Y + frameSize.Y + 5)
         end
-    end
-    
-    parent:GetPropertyChangedSignal("CanvasPosition"):Connect(updateDropdownPosition)
-    
-    return frame
+    end)
 end
 
 local function AddSlider(parent, text, min, max, default, callback)
@@ -1261,7 +1249,6 @@ AddToggle(mainTab, "Start Farming", function(value)
         Stats.Chain = 0
         Stats.Defeats = 0
         
-        -- Enable skip level up when starting
         pcall(function()
             if ClientModule and ClientModule.Network then
                 ClientModule.Network:post("ToggleSettings","SkipLevelUp",true)
@@ -1270,14 +1257,12 @@ AddToggle(mainTab, "Start Farming", function(value)
         
         print("==============================================")
         print("🎮 FARMING ENABLED")
-        print("Chain Mode:", Settings.ChainMode and "ON (Will attack same species)" or "OFF (Will run from all)")
-        print("Move Slot:", Settings.SelectedMoveSlot)
-        print("Fast Forward:", Settings.FastForward and "ON (2x speed)" or "OFF")
-        print("Auto Heal After Defeat:", Settings.AutoHealEvery1 and "ON" or "OFF")
+        print("Chain Mode:", Settings.ChainMode and "ON" or "OFF")
+        print("Auto Catch:", Settings.AutoCatch and "ON" or "OFF")
+        print("Fast Forward:", Settings.FastForward and "ON" or "OFF")
         print("Skip Animations:", Settings.SkipAnimations and "ON" or "OFF")
         print("==============================================")
     else
-        -- Disable skip level up when stopping
         pcall(function()
             if ClientModule and ClientModule.Network then
                 ClientModule.Network:post("ToggleSettings","SkipLevelUp",false)
@@ -1287,37 +1272,47 @@ AddToggle(mainTab, "Start Farming", function(value)
     end
 end)
 
+AddToggle(mainTab, "Auto Catch on Match", function(value)
+    Settings.AutoCatch = value
+    print("Auto Catch:", value and "ENABLED - Will auto-catch matches" or "DISABLED")
+end)
+
+AddButtonGroup(mainTab, "Catch Ball:", {"Disc", "Tactic Disc", "Strategy Disc"}, "Disc", function(value)
+    Settings.CatchBallType = value
+    print("Catch Ball Type:", value)
+end)
+
 AddToggle(mainTab, "Chain Mode (Kill/Run)", function(value)
     Settings.ChainMode = value
-    print("Chain Mode:", value and "ENABLED - Will kill same species, run from others" or "DISABLED - Will run from all")
+    print("Chain Mode:", value and "ENABLED" or "DISABLED")
 end)
 
 AddToggle(mainTab, "Fast Forward (2x Speed)", function(value)
     Settings.FastForward = value
-    print("Fast Forward:", value and "ENABLED - Battles will be faster" or "DISABLED - Normal speed")
+    print("Fast Forward:", value and "ENABLED" or "DISABLED")
 end)
 
 AddToggle(mainTab, "Auto Heal After Each Defeat", function(value)
     Settings.AutoHealEvery1 = value
-    print("Auto Heal After Defeat:", value and "ENABLED - Will heal after every victory" or "DISABLED")
+    print("Auto Heal After Defeat:", value and "ENABLED" or "DISABLED")
 end)
 
 AddToggle(mainTab, "Skip Battle Animations", function(value)
     Settings.SkipAnimations = value
-    print("Skip Animations:", value and "ENABLED - Faster battle start" or "DISABLED - Normal animations")
+    print("Skip Animations:", value and "ENABLED" or "DISABLED")
 end)
 
 AddSlider(mainTab, "Move Slot", 1, 4, 1, function(value)
     Settings.SelectedMoveSlot = value
-    print("Move Slot set to:", value, "- This move will be used in Chain Mode")
+    print("Move Slot set to:", value)
 end)
 
 -- Stats Display
 local statsLabel = Instance.new("TextLabel")
-statsLabel.Size = UDim2.new(1, 0, 0, 85)
+statsLabel.Size = UDim2.new(1, 0, 0, 100)
 statsLabel.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
 statsLabel.BorderSizePixel = 0
-statsLabel.Text = "Encounters: 0\nChain: 0\nFound: 0\nDefeats: 0"
+statsLabel.Text = "Encounters: 0\nChain: 0\nFound: 0\nDefeats: 0\nCaught: 0"
 statsLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
 statsLabel.TextSize = 14
 statsLabel.Font = Enum.Font.GothamBold
@@ -1346,26 +1341,25 @@ resetBtn.MouseButton1Click:Connect(function()
     Stats.Chain = 0
     Stats.Found = 0
     Stats.Defeats = 0
+    Stats.Caught = 0
     print("📊 Stats reset!")
 end)
 
 task.spawn(function()
     while task.wait(1) do
         if statsLabel then
-            statsLabel.Text = string.format("Encounters: %d\nChain: %d\nFound: %d\nDefeats: %d", 
-                Stats.Encounters, Stats.Chain, Stats.Found, Stats.Defeats)
+            statsLabel.Text = string.format("Encounters: %d\nChain: %d\nFound: %d\nDefeats: %d\nCaught: %d", 
+                Stats.Encounters, Stats.Chain, Stats.Found, Stats.Defeats, Stats.Caught)
         end
     end
 end)
 
 -- FILTERS TAB
-
--- Active Filters Display
 local activeFiltersLabel = Instance.new("TextLabel")
 activeFiltersLabel.Size = UDim2.new(1, 0, 0, 60)
 activeFiltersLabel.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
 activeFiltersLabel.BorderSizePixel = 0
-activeFiltersLabel.Text = "🎯 ACTIVE FILTERS:\nNone - will catch any Doodle"
+activeFiltersLabel.Text = "🎯 ACTIVE FILTERS:\nNone"
 activeFiltersLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
 activeFiltersLabel.TextSize = 11
 activeFiltersLabel.Font = Enum.Font.Gotham
@@ -1395,302 +1389,24 @@ local function UpdateActiveFilters()
     if Settings.TargetSkin ~= "Any" then table.insert(filters, "Skin: " .. Settings.TargetSkin) end
     
     if #filters == 0 then
-        activeFiltersLabel.Text = "🎯 ACTIVE FILTERS:\nNone - Set filters or script won't stop!"
+        activeFiltersLabel.Text = "🎯 ACTIVE FILTERS:\nNone - Set filters!"
         activeFiltersLabel.BackgroundColor3 = Color3.fromRGB(150, 50, 50)
     else
-        activeFiltersLabel.Text = "🎯 ACTIVE FILTERS (ALL must match):\n" .. table.concat(filters, ", ")
+        activeFiltersLabel.Text = "🎯 ACTIVE FILTERS:\n" .. table.concat(filters, ", ")
         activeFiltersLabel.BackgroundColor3 = Color3.fromRGB(60, 100, 60)
     end
-end
-
--- Store GUI elements that need to be updated
-local skinButtonGroup = nil
-local skinDropdown = nil
-
-local function UpdateSkinOptions(doodleName)
-    -- Remove old skin UI elements safely
-    if skinButtonGroup and skinButtonGroup.Parent then
-        pcall(function()
-            skinButtonGroup:Destroy()
-        end)
-        skinButtonGroup = nil
-    end
-    if skinDropdown and skinDropdown.Parent then
-        pcall(function()
-            skinDropdown:Destroy()
-        end)
-        skinDropdown = nil
-    end
-    
-    -- Get skins for selected doodle
-    local availableSkins = GetSkinsForDoodle(doodleName)
-    
-    -- Reset skin selection
-    Settings.TargetSkin = "Any"
-    
-    -- Create new button group
-    local btnGroupFrame = Instance.new("Frame")
-    btnGroupFrame.Size = UDim2.new(1, 0, 0, 45)
-    btnGroupFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
-    btnGroupFrame.BorderSizePixel = 0
-    btnGroupFrame.Parent = filtersTab
-    btnGroupFrame.LayoutOrder = 100
-    
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 8)
-    corner.Parent = btnGroupFrame
-    
-    local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(0.4, 0, 1, 0)
-    lbl.Position = UDim2.new(0, 15, 0, 0)
-    lbl.BackgroundTransparency = 1
-    lbl.Text = "Skin:"
-    lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
-    lbl.TextSize = 13
-    lbl.Font = Enum.Font.Gotham
-    lbl.TextXAlignment = Enum.TextXAlignment.Left
-    lbl.Parent = btnGroupFrame
-    
-    local buttons = {}
-    local btnWidth = (1 - 0.45) / 3
-    local quickOptions = {"Any", "Default", "HasSkin"}
-    
-    for i, option in ipairs(quickOptions) do
-        local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(btnWidth - 0.02, 0, 0, 28)
-        btn.Position = UDim2.new(0.42 + (i-1) * btnWidth, 0, 0.5, -14)
-        btn.BackgroundColor3 = (option == "Any") and Color3.fromRGB(75, 150, 255) or Color3.fromRGB(50, 50, 60)
-        btn.Text = option
-        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        btn.TextSize = 11
-        btn.Font = Enum.Font.GothamBold
-        btn.Parent = btnGroupFrame
-        
-        local btnCorner = Instance.new("UICorner")
-        btnCorner.CornerRadius = UDim.new(0, 6)
-        btnCorner.Parent = btn
-        
-        buttons[option] = btn
-        
-        btn.MouseButton1Click:Connect(function()
-            Settings.TargetSkin = option
-            print("Target Skin:", option)
-            UpdateActiveFilters()
-            for opt, b in pairs(buttons) do
-                if opt == option then
-                    b.BackgroundColor3 = Color3.fromRGB(75, 150, 255)
-                else
-                    b.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
-                end
-            end
-        end)
-    end
-    
-    skinButtonGroup = btnGroupFrame
-    
-    -- Only show dropdown if there are specific skins for this doodle
-    if #availableSkins > 3 then
-        local dropdownFrame = Instance.new("Frame")
-        dropdownFrame.Size = UDim2.new(1, 0, 0, 40)
-        dropdownFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
-        dropdownFrame.BorderSizePixel = 0
-        dropdownFrame.Parent = filtersTab
-        dropdownFrame.ClipsDescendants = false
-        dropdownFrame.ZIndex = 1
-        dropdownFrame.LayoutOrder = 101
-        
-        local dropCorner = Instance.new("UICorner")
-        dropCorner.CornerRadius = UDim.new(0, 8)
-        dropCorner.Parent = dropdownFrame
-        
-        local searchBox = Instance.new("TextBox")
-        searchBox.Size = UDim2.new(1, -20, 1, 0)
-        searchBox.Position = UDim2.new(0, 15, 0, 0)
-        searchBox.BackgroundTransparency = 1
-        searchBox.Text = ""
-        searchBox.PlaceholderText = "🔍 Search " .. doodleName .. " Skins... (" .. (#availableSkins - 3) .. " available)"
-        searchBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-        searchBox.PlaceholderColor3 = Color3.fromRGB(150, 150, 150)
-        searchBox.TextSize = 13
-        searchBox.Font = Enum.Font.Gotham
-        searchBox.ClearTextOnFocus = false
-        searchBox.TextXAlignment = Enum.TextXAlignment.Left
-        searchBox.ZIndex = 2
-        searchBox.Parent = dropdownFrame
-        
-        local dropdownList = Instance.new("ScrollingFrame")
-        dropdownList.Size = UDim2.new(1, 0, 0, 0)
-        dropdownList.Position = UDim2.new(0, 0, 1, 5)
-        dropdownList.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-        dropdownList.BorderSizePixel = 0
-        dropdownList.Visible = false
-        dropdownList.ScrollBarThickness = 4
-        dropdownList.ZIndex = 200
-        dropdownList.Parent = ScreenGui
-        
-        local listCorner = Instance.new("UICorner")
-        listCorner.CornerRadius = UDim.new(0, 8)
-        listCorner.Parent = dropdownList
-        
-        local listLayout = Instance.new("UIListLayout")
-        listLayout.Padding = UDim.new(0, 3)
-        listLayout.SortOrder = Enum.SortOrder.LayoutOrder
-        listLayout.Parent = dropdownList
-        
-        local function updateList(query)
-            for _, child in ipairs(dropdownList:GetChildren()) do
-                if child:IsA("TextButton") then
-                    child:Destroy()
-                end
-            end
-            
-            if query == "" then
-                dropdownList.Visible = false
-                return
-            end
-            
-            local matches = {}
-            query = query:lower()
-            
-            for _, item in ipairs(availableSkins) do
-                if item ~= "Any" and item ~= "Default" and item ~= "HasSkin" then
-                    if item:lower():find(query, 1, true) then
-                        table.insert(matches, item)
-                        if #matches >= 8 then break end
-                    end
-                end
-            end
-            
-            if #matches == 0 then
-                dropdownList.Visible = false
-                return
-            end
-            
-            local framePos = dropdownFrame.AbsolutePosition
-            local frameSize = dropdownFrame.AbsoluteSize
-            dropdownList.Position = UDim2.new(0, framePos.X, 0, framePos.Y + frameSize.Y + 5)
-            dropdownList.Size = UDim2.new(0, frameSize.X, 0, 0)
-            
-            for _, item in ipairs(matches) do
-                local btn = Instance.new("TextButton")
-                btn.Size = UDim2.new(1, -10, 0, 30)
-                btn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
-                btn.Text = item
-                btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-                btn.TextSize = 12
-                btn.Font = Enum.Font.Gotham
-                btn.ZIndex = 201
-                btn.Parent = dropdownList
-                
-                local btnCorner = Instance.new("UICorner")
-                btnCorner.CornerRadius = UDim.new(0, 6)
-                btnCorner.Parent = btn
-                
-                btn.MouseButton1Click:Connect(function()
-                    searchBox.Text = item
-                    dropdownList.Visible = false
-                    Settings.TargetSkin = item
-                    print("Custom Target Skin:", item)
-                    UpdateActiveFilters()
-                    
-                    -- Update button group to deselect quick options
-                    for opt, b in pairs(buttons) do
-                        b.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
-                    end
-                end)
-                
-                btn.MouseEnter:Connect(function()
-                    btn.BackgroundColor3 = Color3.fromRGB(55, 55, 65)
-                end)
-                
-                btn.MouseLeave:Connect(function()
-                    btn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
-                end)
-            end
-            
-            dropdownList.Visible = true
-            local contentHeight = math.min(listLayout.AbsoluteContentSize.Y + 10, 180)
-            dropdownList.Size = UDim2.new(0, frameSize.X, 0, contentHeight)
-            dropdownList.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y + 10)
-        end
-        
-        searchBox:GetPropertyChangedSignal("Text"):Connect(function()
-            updateList(searchBox.Text)
-        end)
-        
-        searchBox.FocusLost:Connect(function()
-            task.wait(0.2)
-            dropdownList.Visible = false
-        end)
-        
-        -- Update dropdown position when scrolling - with safety check
-        local scrollConnection
-        scrollConnection = filtersTab:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
-            if dropdownList.Visible and dropdownFrame.Parent then
-                pcall(function()
-                    local framePos = dropdownFrame.AbsolutePosition
-                    local frameSize = dropdownFrame.AbsoluteSize
-                    dropdownList.Position = UDim2.new(0, framePos.X, 0, framePos.Y + frameSize.Y + 5)
-                end)
-            end
-        end)
-        
-        -- Clean up connection when dropdown is destroyed
-        dropdownFrame.Destroying:Connect(function()
-            if scrollConnection then
-                scrollConnection:Disconnect()
-            end
-            if dropdownList then
-                pcall(function()
-                    dropdownList:Destroy()
-                end)
-            end
-        end)
-        
-        skinDropdown = dropdownFrame
-    else
-        -- No specific skins available message
-        local noSkinsLabel = Instance.new("TextLabel")
-        noSkinsLabel.Size = UDim2.new(1, 0, 0, 30)
-        noSkinsLabel.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
-        noSkinsLabel.BorderSizePixel = 0
-        noSkinsLabel.Text = "ℹ️ No specific skins available for " .. doodleName
-        noSkinsLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-        noSkinsLabel.TextSize = 11
-        noSkinsLabel.Font = Enum.Font.Gotham
-        noSkinsLabel.Parent = filtersTab
-        noSkinsLabel.LayoutOrder = 101
-        
-        local noSkinsCorner = Instance.new("UICorner")
-        noSkinsCorner.CornerRadius = UDim.new(0, 8)
-        noSkinsCorner.Parent = noSkinsLabel
-        
-        skinDropdown = noSkinsLabel
-    end
-    
-    UpdateActiveFilters()
 end
 
 AddDropdown(filtersTab, "🔍 Search Doodle Name...", DoodleNames, function(text)
     Settings.TargetSpecies = text
     print("Target:", text == "" and "Any" or text)
     UpdateActiveFilters()
-    
-    -- Update skin options when doodle changes - with delay to prevent conflicts
-    task.spawn(function()
-        task.wait(0.1)
-        if text ~= "" then
-            UpdateSkinOptions(text)
-        else
-            UpdateSkinOptions("None")
-        end
-    end)
 end)
 
 AddSlider(filtersTab, "Exact Stars ⭐ (Any/1-6)", -1, 6, -1, function(value)
     Settings.MinStars = value
     if value == -1 then
-        print("Stars: Any (don't care)")
+        print("Stars: Any")
     else
         print("Exact Stars:", value, "⭐ ONLY")
     end
@@ -1719,17 +1435,26 @@ AddButtonGroup(filtersTab, "Gender:", {"Any", "Male", "Female"}, "Any", function
     UpdateActiveFilters()
 end)
 
--- Initialize skin options (empty until doodle is selected)
-UpdateSkinOptions("None")
+AddButtonGroup(filtersTab, "Skin:", {"Any", "Default", "HasSkin"}, "Any", function(value)
+    Settings.TargetSkin = value
+    print("Target Skin:", value)
+    UpdateActiveFilters()
+end)
+
+local customSkinInput = AddTextInput(filtersTab, "Custom Skin Name (exact, optional)", function(text)
+    if text ~= "" then
+        Settings.TargetSkin = text
+        print("Custom Target Skin:", text)
+        UpdateActiveFilters()
+    end
+end)
 
 -- UTILS TAB
-
--- Info Box
 local infoBox = Instance.new("TextLabel")
-infoBox.Size = UDim2.new(1, 0, 0, 120)
+infoBox.Size = UDim2.new(1, 0, 0, 130)
 infoBox.BackgroundColor3 = Color3.fromRGB(45, 100, 180)
 infoBox.BorderSizePixel = 0
-infoBox.Text = "ℹ️ ENHANCED FEATURES:\n• Fast Forward: Speeds up ALL animations\n• Encounter Intro: 85% faster transition\n• Skip Animations: Faster battle start\n• Keep Attacking: Defeats enemies fully\n• Auto Heal: Heals after each win\n• Faster Encounters: Reduced delays\n\n1. Stand in tall grass\n2. Set filters in Filters tab\n3. Enable all speed options\n4. Press Start Farming!"
+infoBox.Text = "ℹ️ ENHANCED FEATURES:\n• Auto Catch: Automatically catches matches\n• Fast Forward: 2x battle speed\n• Skip Animations: Instant encounter start\n• Keep Attacking: Full defeats\n• Auto Heal: Heals after wins\n\n1. Stand in tall grass\n2. Set filters\n3. Enable Auto Catch\n4. Press Start Farming!"
 infoBox.TextColor3 = Color3.fromRGB(255, 255, 255)
 infoBox.TextSize = 10
 infoBox.Font = Enum.Font.Gotham
@@ -1772,7 +1497,7 @@ end)
 
 AddSlider(utilsTab, "Encounter Delay (s)", 1, 5, 2, function(value)
     Settings.EncounterDelay = value
-    print("Encounter Delay:", value .. "s (auto-reduced when Fast Forward is ON)")
+    print("Encounter Delay:", value .. "s")
 end)
 
 -- Make draggable
@@ -1822,7 +1547,6 @@ task.spawn(function()
     
     while task.wait(1) do
         if Settings.Enabled then
-            -- Don't spam encounters if already in battle
             local MainGui = Player.PlayerGui:FindFirstChild("MainGui")
             if MainGui then
                 local BattleGui = MainGui:FindFirstChild("MainBattle")
@@ -1831,7 +1555,6 @@ task.spawn(function()
                     continue
                 else
                     if isInBattle then
-                        -- Just left battle, wait a bit before next encounter
                         task.wait(1.5)
                         isInBattle = false
                     end
@@ -1873,7 +1596,6 @@ task.spawn(function()
                         DudeWhyld:FireServer(zone, zoneEncounters[zone])
                     end)
                     
-                    -- Wait for encounter to start
                     local waitTime = Settings.EncounterDelay
                     if Settings.FastForward and waitTime > 1.5 then
                         waitTime = 1.5
@@ -1896,13 +1618,14 @@ pcall(function()
     end
 end)
 
-print("✅ Enhanced Auto Farm Loaded!")
+print("✅ Enhanced Auto Farm with Auto Catch Loaded!")
 print("🚀 NEW FEATURES:")
+print("   • Auto Catch: Automatically catches matching Doodles")
 print("   • Fast Forward (2x Speed)")
-print("   • Skip Battle Animations")
+print("   • Skip Battle Animations (Instant Start)")
 print("   • Keep Attacking Until Defeated")
 print("   • Auto Heal After Each Defeat")
 print("   • Faster Encounter Rate")
 print("")
-print("Stand in grass and press Start Farming!")
-print("Script will only stop for Doodles that match ALL your filters!")
+print("Stand in grass, set filters, enable Auto Catch, and press Start Farming!")
+print("Script will auto-catch Doodles that match ALL your filters!")
