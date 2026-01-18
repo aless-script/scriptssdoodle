@@ -1676,12 +1676,15 @@ AddDropdown(filtersTab, "🔍 Search Doodle Name...", DoodleNames, function(text
     print("Target:", text == "" and "Any" or text)
     UpdateActiveFilters()
     
-    -- Update skin options when doodle changes
-    if text ~= "" then
-        UpdateSkinOptions(text)
-    else
-        UpdateSkinOptions("None")
-    end
+    -- Update skin options when doodle changes - with delay to prevent conflicts
+    task.spawn(function()
+        task.wait(0.1)
+        if text ~= "" then
+            UpdateSkinOptions(text)
+        else
+            UpdateSkinOptions("None")
+        end
+    end)
 end)
 
 AddSlider(filtersTab, "Exact Stars ⭐ (Any/1-6)", -1, 6, -1, function(value)
